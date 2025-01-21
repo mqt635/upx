@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 2004-2023 John Reiser
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 2004-2025 John Reiser
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -30,6 +30,7 @@
  */
 
 
+#define ALLOW_INT_PLUS_MEMBUFFER 1
 #include "conf.h"
 
 #include "file.h"
@@ -1239,7 +1240,7 @@ Linker* PackVmlinuxAMD64::newLinker() const
 
 // instantiate instances
 template class PackVmlinuxBase<ElfClass_BE32>;
-// template class PackVmlinuxBase<ElfClass_BE64>; // not used
+// template class PackVmlinuxBase<ElfClass_BE64>; // currently not used
 template class PackVmlinuxBase<ElfClass_LE32>;
 template class PackVmlinuxBase<ElfClass_LE64>;
 

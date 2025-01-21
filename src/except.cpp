@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -31,39 +31,41 @@
 //
 **************************************************************************/
 
-/*static*/ upx_std_atomic(size_t) Throwable::debug_counter;
+/*static*/ Throwable::Stats Throwable::stats;
 
 Throwable::Throwable(const char *m, int e, bool w) noexcept : super(),
                                                               msg(nullptr),
                                                               err(e),
                                                               is_warning(w) {
-    if (m)
+    if (m != nullptr) {
         msg = strdup(m);
-#if 0
-    fprintf(stderr, "construct exception: %s %zu\n", msg, debug_counter);
-    debug_counter += 1;
-#endif
+        assert_noexcept(msg != nullptr);
+    }
+    NO_fprintf(stderr, "construct exception: %zu %zu %s\n", size_t(stats.counter_current),
+               size_t(stats.counter_total), (const char *) msg);
+    stats.counter_current += 1;
+    stats.counter_total += 1;
 }
 
 Throwable::Throwable(const Throwable &other) noexcept : super(other),
                                                         msg(nullptr),
                                                         err(other.err),
                                                         is_warning(other.is_warning) {
-    if (other.msg)
+    if (other.msg != nullptr) {
         msg = strdup(other.msg);
-#if 0
-    fprintf(stderr, "copy exception: %s %zu\n", msg, debug_counter);
-    debug_counter += 1;
-#endif
+        assert_noexcept(msg != nullptr);
+    }
+    NO_fprintf(stderr, "copy construct exception: %zu %zu %s\n", size_t(stats.counter_current),
+               size_t(stats.counter_total), (const char *) msg);
+    stats.counter_current += 1;
+    stats.counter_total += 1;
 }
 
 Throwable::~Throwable() noexcept {
-#if 0
-    debug_counter -= 1;
-    fprintf(stderr, "destruct exception: %s %zu\n", msg, debug_counter);
-#endif
-    if (msg)
-        free(msg);
+    stats.counter_current -= 1;
+    NO_fprintf(stderr, "destruct exception: %zu %zu %s\n", size_t(stats.counter_current),
+               size_t(stats.counter_total), (const char *) msg);
+    upx::owner_free(msg);
 }
 
 /*************************************************************************
@@ -150,7 +152,7 @@ void throwCantPack(const char *format, ...) {
     char msg[1024];
     va_list ap;
     va_start(ap, format);
-    (void) upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
+    upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
     va_end(ap);
     throwCantPack(msg);
 }
@@ -160,7 +162,7 @@ void throwCantUnpack(const char *format, ...) {
     char msg[1024];
     va_list ap;
     va_start(ap, format);
-    (void) upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
+    upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
     va_end(ap);
     throwCantUnpack(msg);
 }
@@ -170,9 +172,9 @@ void throwInternalError(const char *format, ...) {
     char msg[1024];
     va_list ap;
     va_start(ap, format);
-    (void) upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
+    upx_safe_vsnprintf_noexcept(msg, sizeof(msg), format, ap);
     va_end(ap);
-    throwCantUnpack(msg);
+    throwInternalError(msg);
 }
 
 /*************************************************************************
@@ -193,7 +195,7 @@ void throwAssertFailed(const char *expr, const char *file, int line, const char 
     }
 }
 
-const char *prettyName(const char *n) noexcept {
+const char *prettyExceptionName(const char *n) noexcept {
     if (n == nullptr)
         return "(null)";
     while (*n) {
@@ -201,7 +203,7 @@ const char *prettyName(const char *n) noexcept {
             n++;
         else if (*n == ' ')
             n++;
-        else if (strncmp(n, "class ", 6) == 0) // Visual C++ (msvc)
+        else if (strncmp(n, "class ", 6) == 0) // Visual C++ (MSVC)
             n += 6;
         else
             break;

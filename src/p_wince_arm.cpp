@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -190,7 +190,7 @@ void PackWinCeArm::addNewRelocations(Reloc &rel, unsigned upxsection) {
     for (unsigned s2r = 0; s2r < TABLESIZE(symbols_to_relocate); s2r++) {
         unsigned off = linker->getSymbolOffset(symbols_to_relocate[s2r]);
         if (off != 0xdeaddead)
-            rel.add(off + upxsection, 3);
+            rel.add_reloc(off + upxsection, IMAGE_REL_BASED_HIGHLOW);
     }
 }
 

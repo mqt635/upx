@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -36,9 +36,12 @@
 //
 **************************************************************************/
 
-PackerBase::PackerBase(InputFile *f) : fi(f), file_size(f ? f->st_size() : 0) {
+PackerBase::PackerBase(InputFile *f)
+    : fi(f), file_size(f != nullptr ? f->st_size() : 0), file_size_i32(file_size) {
     ph.reset();
-    mem_size_assert(1, file_size);
+    mem_size_assert(1, file_size_u); // limited by UPX_RSIZE_MAX
+    assert_noexcept(file_size_i32 == file_size);
+    assert_noexcept(file_size_u32 == file_size_u);
 }
 
 Packer::Packer(InputFile *f) : PackerBase(f) { uip = new UiPacker(this); }
@@ -57,9 +60,9 @@ void Packer::assertPacker() const {
     assert(getVersion() >= 11);
     assert(getVersion() <= 14);
     assert(strlen(getName()) <= 15);
-    // info: 36 is the limit for show_all_packers() in help.cpp, but 32 should be enough
-    assert(strlen(getFullName(opt)) <= 32);
+    // info: 36 is the limit for show_all_packers() in help.cpp, but 32 should be enough for now
     assert(strlen(getFullName(nullptr)) <= 32);
+    assert(strlen(getFullName(opt)) <= 32);
     if (bele == nullptr)
         fprintf(stderr, "%s\n", getName());
     assert(bele != nullptr);
@@ -190,16 +193,16 @@ bool Packer::compress(SPAN_P(byte) i_ptr, unsigned i_len, SPAN_P(byte) o_ptr,
 #endif
     }
     if (M_IS_LZMA(method)) {
-        oassign(cconf.conf_lzma.pos_bits, opt->crp.crp_lzma.pos_bits);
-        oassign(cconf.conf_lzma.lit_pos_bits, opt->crp.crp_lzma.lit_pos_bits);
-        oassign(cconf.conf_lzma.lit_context_bits, opt->crp.crp_lzma.lit_context_bits);
-        oassign(cconf.conf_lzma.dict_size, opt->crp.crp_lzma.dict_size);
-        oassign(cconf.conf_lzma.num_fast_bytes, opt->crp.crp_lzma.num_fast_bytes);
+        upx::oassign(cconf.conf_lzma.pos_bits, opt->crp.crp_lzma.pos_bits);
+        upx::oassign(cconf.conf_lzma.lit_pos_bits, opt->crp.crp_lzma.lit_pos_bits);
+        upx::oassign(cconf.conf_lzma.lit_context_bits, opt->crp.crp_lzma.lit_context_bits);
+        upx::oassign(cconf.conf_lzma.dict_size, opt->crp.crp_lzma.dict_size);
+        upx::oassign(cconf.conf_lzma.num_fast_bytes, opt->crp.crp_lzma.num_fast_bytes);
     }
     if (M_IS_DEFLATE(method)) {
-        oassign(cconf.conf_zlib.mem_level, opt->crp.crp_zlib.mem_level);
-        oassign(cconf.conf_zlib.window_bits, opt->crp.crp_zlib.window_bits);
-        oassign(cconf.conf_zlib.strategy, opt->crp.crp_zlib.strategy);
+        upx::oassign(cconf.conf_zlib.mem_level, opt->crp.crp_zlib.mem_level);
+        upx::oassign(cconf.conf_zlib.window_bits, opt->crp.crp_zlib.window_bits);
+        upx::oassign(cconf.conf_zlib.strategy, opt->crp.crp_zlib.strategy);
     }
     if (uip->ui_pass >= 0)
         uip->ui_pass++;
@@ -469,33 +472,10 @@ unsigned Packer::getRandomId() const {
     if (opt->debug.disable_random_id)
         return 0x01020304;
     unsigned id = 0;
-#if 0 && defined(__unix__)
-    // Don't consume precious bytes from /dev/urandom.
-    int fd = open("/dev/urandom", O_RDONLY | O_BINARY);
-    if (fd < 0)
-        fd = open("/dev/random", O_RDONLY | O_BINARY);
-    if (fd >= 0) {
-        if (read(fd, &id, 4) != 4)
-            id = 0;
-        close(fd);
-    }
-#endif
     while (id == 0) {
-#if !(HAVE_GETTIMEOFDAY) || ((ACC_OS_DOS32) && defined(__DJGPP__))
-        id ^= (unsigned) time(nullptr);
-        id ^= ((unsigned) clock()) << 12;
-#else
-        struct timeval tv;
-        gettimeofday(&tv, nullptr);
-        id ^= (unsigned) tv.tv_sec;
-        id ^= ((unsigned) tv.tv_usec) << 12; // shift into high-bits
-#endif
-#if HAVE_GETPID
-        id ^= (unsigned) getpid();
-#endif
         id ^= (unsigned) fi->st.st_ino;
         id ^= (unsigned) fi->st.st_atime;
-        id ^= (unsigned) rand();
+        id ^= (unsigned) upx_rand();
     }
     return id;
 }
@@ -899,6 +879,7 @@ void Packer::relocateLoader() {
 //  -1:  try all filters, use first working one
 //  -2:  try only the opt->filter filter
 //  -3:  use no filter at all
+//  -4:  use no filter at all, and build no loader, either
 //
 // This has been prepared for generalization into class Packer so that
 // opt->all_methods and/or opt->all_filters are available for all
@@ -947,10 +928,10 @@ int Packer::prepareMethods(int *methods, int ph_method, const int *all_methods) 
     }
     // debug
     if (opt->debug.use_random_method && nmethods >= 2) {
-        int method = methods[rand() % nmethods];
+        int method = methods[upx_rand() % nmethods];
+        NO_printf("\nuse_random_method = %#x (%d)\n", method, nmethods);
         methods[0] = method;
         nmethods = 1;
-        NO_printf("\nuse_random_method = %d\n", method);
     }
     return nmethods;
 }
@@ -972,7 +953,7 @@ static int prepareFilters(int *filters, int &filter_strategy, const int *all_fil
     }
     assert(filter_strategy != 0);
 
-    if (filter_strategy == -3)
+    if (filter_strategy <= -3)
         goto done;
     if (filter_strategy == -2) {
         if (opt->filter >= 0 && Filter::isValidFilter(opt->filter, all_filters)) {
@@ -1015,12 +996,12 @@ done:
         filters[nfilters++] = 0;
     // debug
     if (opt->debug.use_random_filter && nfilters >= 3 && filters[nfilters - 1] == 0) {
-        int filter_id = filters[rand() % (nfilters - 1)];
+        int filter_id = filters[upx_rand() % (nfilters - 1)];
         if (filter_id > 0) {
+            NO_printf("\nuse_random_filter = %#x (%d)\n", filter_id, nfilters - 1);
             filters[0] = filter_id;
             filters[1] = 0;
             nfilters = 2;
-            NO_printf("\nuse_random_filter = %d\n", filter_id);
         }
     }
     return nfilters;
@@ -1054,14 +1035,14 @@ void Packer::compressWithFilters(byte *i_ptr,
     assert(orig_ft.id == 0);
 
     // prepare methods and filters
-    int methods[256];
+    int methods[MAX_METHODS];
     int nmethods = prepareMethods(methods, ph.method, getCompressionMethods(M_ALL, ph.level));
-    assert(nmethods > 0);
-    assert(nmethods < 256);
-    int filters[256];
+    assert_noexcept(nmethods > 0);
+    assert_noexcept(nmethods < (int) MAX_METHODS);
+    int filters[MAX_FILTERS];
     int nfilters = prepareFilters(filters, filter_strategy, getFilters());
-    assert(nfilters > 0);
-    assert(nfilters < 256);
+    assert_noexcept(nfilters > 0);
+    assert_noexcept(nfilters < (int) MAX_FILTERS);
 #if 0
     printf("compressWithFilters: m(%d):", nmethods);
     for (int i = 0; i < nmethods; i++)
@@ -1154,9 +1135,11 @@ void Packer::compressWithFilters(byte *i_ptr,
                     best_ph.c_len + best_ph_lsize + best_hdr_c_len) {
                     // get results
                     ph.overlap_overhead = findOverlapOverhead(o_tmp, i_ptr, overlap_range);
-                    buildLoader(&ft);
-                    lsize = getLoaderSize();
-                    assert(lsize > 0);
+                    if (-4 < filter_strategy) {
+                        buildLoader(&ft);
+                        lsize = getLoaderSize();
+                        assert(lsize > 0);
+                    }
                 }
                 NO_printf("\n%2d %02x: %d +%4d +%3d = %d  (best: %d +%4d +%3d = %d)\n", ph.method,
                           ph.filter, ph.c_len, lsize, hdr_c_len, ph.c_len + lsize + hdr_c_len,
@@ -1247,7 +1230,7 @@ void Packer::compressWithFilters(Filter *ft, const unsigned overlap_range,
     unsigned i_len = ph.u_len;
     byte *o_ptr = obuf + obuf_off;
     unsigned f_len = ft->buf_len ? ft->buf_len : i_len;
-    if (filter_strategy == -3) {
+    if (filter_strategy <= -3) {
         filter_off = 0;
         f_len = 0;
     }

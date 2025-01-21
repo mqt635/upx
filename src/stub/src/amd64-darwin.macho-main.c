@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
-   Copyright (C) 2000-2023 John F. Reiser
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
+   Copyright (C) 2000-2025 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -63,7 +63,7 @@
 // and then followed by a comma to ignore the return value.
 // The only complication is that percent and backslash
 // must be doubled in the format string, because the format
-// string is processd twice: once at compile-time by 'asm'
+// string is processed twice: once at compile-time by 'asm'
 // to produce the assembled value, and once at runtime to use it.
 #if defined(__powerpc__)  //{
 #define DPRINTF(fmt, args...) ({ \
@@ -250,6 +250,7 @@ ERR_LAB
             xi->size -= h.sz_cpr;
         }
         else { // copy literal block
+            xi->size += sizeof(h);  // xread(xi, &h, sizeof(h)) was a peek
             xread(xi, xo->buf, h.sz_cpr);
         }
         xo->buf  += h.sz_unc;

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -104,6 +104,10 @@ protected:
     static unsigned update_u_len;
     static unsigned update_fc_len;
     static unsigned update_fu_len;
+
+private: // UPX conventions
+    UPX_CXX_DISABLE_ADDRESS(UiPacker)
+    UPX_CXX_DISABLE_COPY_MOVE(UiPacker)
 };
 
 /* vim:set ts=4 sw=4 et: */

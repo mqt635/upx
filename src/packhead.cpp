@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -49,7 +49,7 @@ void PackHeader::reset() noexcept {
 // extremely simple checksum for the header itself (since version 10)
 **************************************************************************/
 
-static byte get_packheader_checksum(SPAN_S(const byte) buf, int blen) {
+static upx_uint8_t get_packheader_checksum(SPAN_S(const byte) buf, int blen) {
     assert(blen >= 4);
     assert(get_le32(buf) == UPX_MAGIC_LE32);
     buf += 4;
@@ -58,7 +58,7 @@ static byte get_packheader_checksum(SPAN_S(const byte) buf, int blen) {
     while (blen-- > 0)
         c += *buf++;
     c %= 251;
-    return (byte) c;
+    return (upx_uint8_t) c;
 }
 
 /*************************************************************************
@@ -99,7 +99,7 @@ int PackHeader::getPackHeaderSize() const {
 **************************************************************************/
 
 void PackHeader::putPackHeader(SPAN_S(byte) p) const {
-    // NOTE: It is the caller's responsbility to ensure the buffer p has
+    // NOTE: It is the caller's responsibility to ensure the buffer p has
     // sufficient space for the header.
     assert(get_le32(p) == UPX_MAGIC_LE32);
     if (get_le32(p + 4) != UPX_MAGIC2_LE32) {
@@ -108,7 +108,7 @@ void PackHeader::putPackHeader(SPAN_S(byte) p) const {
     }
 
     int size = 0;
-    int old_chksum = 0;
+    upx_uint8_t old_chksum = 0;
 
     // the new variable length header
     if (format < 128) { // little endian

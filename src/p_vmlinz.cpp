@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,6 +29,7 @@
 #define ALLOW_INT_PLUS_MEMBUFFER 1
 #include "conf.h"
 
+#if (WITH_ZLIB)
 #include "p_elf.h"
 #include "file.h"
 #include "filter.h"
@@ -267,7 +268,7 @@ int PackVmlinuzI386::decompressKernel()
             fd_pos = -1;
             // open
             fi->seek(gzoff, SEEK_SET);
-            fd = dup(fi->getFd());
+            fd = fi->dupFd();
             if (fd < 0)
                 break;
             gzFile zf = gzdopen(fd, "rb");
@@ -345,7 +346,7 @@ int PackVmlinuzI386::decompressKernel()
         // some checks
         if (fd_pos != file_size)
         {
-            NO_printf("fd_pos: %lld, file_size: %lld\n", fd_pos, file_size);
+            NO_printf("fd_pos: %jd, file_size: %lld\n", (intmax_t) fd_pos, file_size);
 
             // linux-2.6.21.5/arch/i386/boot/compressed/vmlinux.lds
             // puts .data.compressed ahead of .text, .rodata, etc;
@@ -599,8 +600,12 @@ void PackBvmlinuzI386::pack(OutputFile *fo)
             properties = bswap32(properties);
         linker->defineSymbol("lzma_properties", properties);
         // -2 for properties
-        linker->defineSymbol("lzma_c_len", ph.c_len - 2);
-        linker->defineSymbol("lzma_u_len", ph.u_len);
+        if (linker->findSymbol("lzma_c_len", false)) {
+            linker->defineSymbol("lzma_c_len", ph.c_len - 2);
+        }
+        if (linker->findSymbol("lzma_u_len", false)) {
+            linker->defineSymbol("lzma_u_len", ph.u_len);
+        }
         unsigned const stack = getDecompressorWrkmemSize();
         linker->defineSymbol("lzma_stack_adjust", 0u - stack);
     }
@@ -849,7 +854,7 @@ int PackVmlinuzARMEL::decompressKernel()
             fd_pos = -1;
             // open
             fi->seek(gzoff, SEEK_SET);
-            fd = dup(fi->getFd());
+            fd = fi->dupFd();
             if (fd < 0)
                 break;
             gzFile zf = gzdopen(fd, "rb");
@@ -1066,5 +1071,7 @@ void PackVmlinuzARMEL::unpack(OutputFile *fo)
         //fo->write(obuf, ph.u_len);
     }
 }
+
+#endif // WITH_ZLIB
 
 /* vim:set ts=4 sw=4 et: */

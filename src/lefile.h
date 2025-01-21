@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -190,8 +190,7 @@ protected:
     unsigned le_offset = 0;
     unsigned exe_offset = 0;
 
-    le_header_t ih;
-    le_header_t oh;
+    le_header_t ih = {}, oh = {};
 
     le_object_table_entry_t *iobject_table = nullptr;
     le_object_table_entry_t *oobject_table = nullptr;
@@ -223,10 +222,7 @@ protected:
 
 private:
     // disable copy and move
-    LeFile(const LeFile &) DELETED_FUNCTION;
-    LeFile &operator=(const LeFile &) DELETED_FUNCTION;
-    LeFile(LeFile &&) noexcept DELETED_FUNCTION;
-    LeFile &operator=(LeFile &&) noexcept DELETED_FUNCTION;
+    UPX_CXX_DISABLE_COPY_MOVE(LeFile)
 };
 
 /* vim:set ts=4 sw=4 et: */

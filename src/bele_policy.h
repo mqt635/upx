@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -33,21 +33,23 @@
 
 #if defined(BELE_CTP)
 // CTP - Compile-Time Polymorphism (templates)
-#define V static inline
-#define S static int __acc_cdecl_qsort
-#define C noexcept
+#define V  static inline bele_constexpr
+#define VV static forceinline_constexpr
+#define S  static int __acc_cdecl_qsort
+#define C  noexcept
 #elif defined(BELE_RTP)
 // RTP - Run-Time Polymorphism (virtual functions)
-#define V virtual
-#define S virtual int
-#define C const noexcept
+#define V  virtual
+#define VV virtual
+#define S  virtual int
+#define C  const noexcept
 #else
 #error
 #endif
 
 #if defined(BELE_RTP)
 struct AbstractPolicy {
-    explicit inline AbstractPolicy() noexcept {}
+    explicit inline AbstractPolicy() noexcept = default;
     virtual inline ~AbstractPolicy() noexcept {}
     V bool isBE() C = 0;
     V bool isLE() C = 0;
@@ -79,12 +81,9 @@ struct AbstractPolicy {
 
 private:
     // disable copy and move
-    AbstractPolicy(const AbstractPolicy &) DELETED_FUNCTION;
-    AbstractPolicy &operator=(const AbstractPolicy &) DELETED_FUNCTION;
-    AbstractPolicy(AbstractPolicy &&) noexcept DELETED_FUNCTION;
-    AbstractPolicy &operator=(AbstractPolicy &&) noexcept DELETED_FUNCTION;
+    UPX_CXX_DISABLE_COPY_MOVE(AbstractPolicy)
     // disable dynamic allocation
-    ACC_CXX_DISABLE_NEW_DELETE
+    UPX_CXX_DISABLE_NEW_DELETE(AbstractPolicy)
 };
 #endif
 
@@ -93,19 +92,19 @@ private:
 #define C const noexcept override
 #endif
 
-struct BEPolicy
+struct BEPolicy final
 #if defined(BELE_RTP)
-    final : public AbstractPolicy
+    : public AbstractPolicy
 #endif
 {
-    explicit inline BEPolicy() noexcept {}
+    explicit inline BEPolicy() noexcept = default;
 #if defined(BELE_CTP)
     typedef N_BELE_RTP::BEPolicy RTP_Policy;
 #elif defined(BELE_RTP)
     typedef N_BELE_CTP::BEPolicy CTP_Policy;
 #endif
-    V bool isBE() C { return true; }
-    V bool isLE() C { return false; }
+    VV bool isBE() C { return true; }
+    VV bool isLE() C { return false; }
 
     typedef BE16 U16;
     typedef BE32 U32;
@@ -147,27 +146,24 @@ struct BEPolicy
 
 private:
     // disable copy and move
-    BEPolicy(const BEPolicy &) DELETED_FUNCTION;
-    BEPolicy &operator=(const BEPolicy &) DELETED_FUNCTION;
-    BEPolicy(BEPolicy &&) noexcept DELETED_FUNCTION;
-    BEPolicy &operator=(BEPolicy &&) noexcept DELETED_FUNCTION;
+    UPX_CXX_DISABLE_COPY_MOVE(BEPolicy)
     // disable dynamic allocation
-    ACC_CXX_DISABLE_NEW_DELETE
+    UPX_CXX_DISABLE_NEW_DELETE(BEPolicy)
 };
 
-struct LEPolicy
+struct LEPolicy final
 #if defined(BELE_RTP)
-    final : public AbstractPolicy
+    : public AbstractPolicy
 #endif
 {
-    explicit inline LEPolicy() noexcept {}
+    explicit inline LEPolicy() noexcept = default;
 #if defined(BELE_CTP)
     typedef N_BELE_RTP::LEPolicy RTP_Policy;
 #elif defined(BELE_RTP)
     typedef N_BELE_CTP::LEPolicy CTP_Policy;
 #endif
-    V bool isBE() C { return false; }
-    V bool isLE() C { return true; }
+    VV bool isBE() C { return false; }
+    VV bool isLE() C { return true; }
 
     typedef LE16 U16;
     typedef LE32 U32;
@@ -209,12 +205,9 @@ struct LEPolicy
 
 private:
     // disable copy and move
-    LEPolicy(const LEPolicy &) DELETED_FUNCTION;
-    LEPolicy &operator=(const LEPolicy &) DELETED_FUNCTION;
-    LEPolicy(LEPolicy &&) noexcept DELETED_FUNCTION;
-    LEPolicy &operator=(LEPolicy &&) noexcept DELETED_FUNCTION;
+    UPX_CXX_DISABLE_COPY_MOVE(LEPolicy)
     // disable dynamic allocation
-    ACC_CXX_DISABLE_NEW_DELETE
+    UPX_CXX_DISABLE_NEW_DELETE(LEPolicy)
 };
 
 // Native Endianness policy (aka host policy)
@@ -229,6 +222,7 @@ typedef LEPolicy HostPolicy;
 #endif
 
 #undef V
+#undef VV
 #undef S
 #undef C
 

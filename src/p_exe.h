@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -86,7 +86,7 @@ protected:
         LE32 firstreloc;
     };
 
-    exe_header_t ih, oh;
+    exe_header_t ih = {}, oh = {};
 
     unsigned ih_exesize = 0;
     unsigned ih_imagesize = 0;

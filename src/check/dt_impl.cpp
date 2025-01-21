@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -24,6 +24,9 @@
    <markus@oberhumer.com>
  */
 
+#include "../util/system_defs.h"
+#include "../util/system_features.h"
+
 /*************************************************************************
 // doctest support code implementation
 **************************************************************************/
@@ -33,7 +36,10 @@
 
 #if !defined(DOCTEST_CONFIG_DISABLE)
 
-#if defined(__i386__) && defined(__MSDOS__) && defined(__DJGPP__) && defined(__GNUC__)
+#if defined(__wasi__)
+#define DOCTEST_CONFIG_NO_MULTITHREADING
+#define DOCTEST_CONFIG_NO_POSIX_SIGNALS
+#elif defined(__i386__) && defined(__MSDOS__) && defined(__DJGPP__) && defined(__GNUC__)
 #define DOCTEST_CONFIG_NO_MULTITHREADING
 #define DOCTEST_CONFIG_NO_POSIX_SIGNALS
 #elif defined(__m68k__) && defined(__atarist__) && defined(__GNUC__)
@@ -43,15 +49,23 @@
 #pragma GCC diagnostic ignored "-Wshadow"
 #endif
 
-#if !defined(UPX_DOCTEST_CONFIG_MULTITHREADING) && !(WITH_THREADS)
+#if !(WITH_THREADS) && !defined(UPX_DOCTEST_CONFIG_MULTITHREADING)
 #ifndef DOCTEST_CONFIG_NO_MULTITHREADING
 #define DOCTEST_CONFIG_NO_MULTITHREADING
 #endif
 #endif
 
-#if defined(__clang__) && defined(__FAST_MATH__) && defined(__INTEL_LLVM_COMPILER)
+#if defined(__FAST_MATH__) && defined(__clang__) && (__clang_major__ + 0 > 0)
+#if __clang_major__ >= 6
 // warning: comparison with NaN always evaluates to false in fast floating point modes
 #pragma clang diagnostic ignored "-Wtautological-constant-compare"
+#endif
+#if defined(__has_warning)
+#if __has_warning("-Wnan-infinity-disabled")
+// warning: use of NaN is undefined behavior due to the currently enabled floating-point options
+#pragma clang diagnostic ignored "-Wnan-infinity-disabled"
+#endif
+#endif
 #endif
 
 #include <doctest/doctest/parts/doctest.cpp>

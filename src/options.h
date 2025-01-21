@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -28,11 +28,12 @@
 #pragma once
 
 struct Options;
-extern Options *opt;      // global options, see class PackMaster for per-file local options
 #define options_t Options // old name
 
+extern Options *opt; // global options, see class PackMaster for per-file local options
+
 #if WITH_THREADS
-extern std::mutex opt_lock_mutex;
+extern std::mutex opt_lock_mutex; // for locking "opt"
 #endif
 
 /*************************************************************************
@@ -158,6 +159,7 @@ struct Options final {
         unsigned char osabi0;   // replacement if 0==.e_ident[EI_OSABI]
         bool preserve_build_id; // copy the build-id to the compressed binary
         bool android_shlib;     // keep some ElfXX_Shdr for dlopen()
+        bool android_old;       // < Android_10 ==> no memfd_create, inconsistent __NR_ftruncate
         bool force_pie;         // choose DF_1_PIE instead of is_shlib
     } o_unix;
     struct {
@@ -177,6 +179,9 @@ struct Options final {
         int strip_relocs;
         const char *keep_resource;
     } win32_pe;
+
+private: // UPX conventions
+    UPX_CXX_DISABLE_NEW_DELETE(Options)
 };
 
 /* vim:set ts=4 sw=4 et: */

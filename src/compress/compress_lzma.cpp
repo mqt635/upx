@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -30,15 +30,10 @@
 
 #if (ACC_CC_CLANG)
 #pragma clang diagnostic ignored "-Wshadow"
-#endif
-#if (ACC_CC_GNUC >= 0x040200)
+#elif (ACC_CC_GNUC >= 0x040200)
 #pragma GCC diagnostic ignored "-Wshadow"
-#endif
-#if (ACC_CC_MSC)
+#elif (ACC_CC_MSC)
 #pragma warning(disable : 4456) // -Wno-shadow
-#endif
-#if (ACC_CC_MSC && (_MSC_VER < 1900))
-#pragma warning(disable : 4127) // warning C4127: conditional expression is constant
 #endif
 
 void lzma_compress_config_t::reset() noexcept {
@@ -53,41 +48,15 @@ void lzma_compress_config_t::reset() noexcept {
     max_num_probs = 0;
 }
 
-// INFO: the LZMA SDK is covered by a permissive license which allows
-//   using unmodified LZMA source code in UPX and the UPX stubs.
-//   See SPECIAL EXCEPTION below.
+// INFO: LZMA SDK is placed in the public domain.
 //
-// Quoting from lzma-4.43/lzma.txt:
+// Anyone is free to copy, modify, publish, use, compile, sell, or
+// distribute the original LZMA SDK code, either in source code form
+// or as a compiled binary, for any purpose, commercial or non-commercial,
+// and by any means.
 //
-//   LICENSE
-//   -------
-//
-//   LZMA SDK is available under any of the following licenses:
-//
-//   1) GNU Lesser General Public License (GNU LGPL)
-//   2) Common Public License (CPL)
-//   3) Simplified license for unmodified code (read SPECIAL EXCEPTION)
-//   4) Proprietary license
-//
-//   It means that you can select one of these four options and follow rules
-//   of that license.
-//
-//   1,2) GNU LGPL and CPL licenses are pretty similar and both these
-//   licenses are classified as
-//    - "Free software licenses" at http://www.gnu.org/
-//    - "OSI-approved" at http://www.opensource.org/
-//
-//   3) SPECIAL EXCEPTION
-//
-//   Igor Pavlov, as the author of this code, expressly permits you
-//   to statically or dynamically link your code (or bind by name)
-//   to the files from LZMA SDK without subjecting your linked
-//   code to the terms of the CPL or GNU LGPL.
-//   Any modifications or additions to files from LZMA SDK, however,
-//   are subject to the GNU LGPL or CPL terms.
-//
-//   SPECIAL EXCEPTION allows you to use LZMA SDK in applications with closed code,
-//   while you keep LZMA SDK code unmodified.
+// https://www.7-zip.org/sdk.html
+// https://sourceforge.net/p/sevenzip/discussion/45797/thread/685169cf/
 
 /*************************************************************************
 // compress defaults
@@ -158,11 +127,11 @@ static bool prepare_result(lzma_compress_result_t *res, unsigned src_len, int me
 
     // cconf overrides
     if (lcconf) {
-        oassign(res->pos_bits, lcconf->pos_bits);
-        oassign(res->lit_pos_bits, lcconf->lit_pos_bits);
-        oassign(res->lit_context_bits, lcconf->lit_context_bits);
-        oassign(res->dict_size, lcconf->dict_size);
-        oassign(res->num_fast_bytes, lcconf->num_fast_bytes);
+        upx::oassign(res->pos_bits, lcconf->pos_bits);
+        upx::oassign(res->lit_pos_bits, lcconf->lit_pos_bits);
+        upx::oassign(res->lit_context_bits, lcconf->lit_context_bits);
+        upx::oassign(res->dict_size, lcconf->dict_size);
+        upx::oassign(res->num_fast_bytes, lcconf->num_fast_bytes);
     }
 
     // limit dictionary size
@@ -206,15 +175,12 @@ error:
 // compress - cruft because of pseudo-COM layer
 **************************************************************************/
 
-// ensure proper nullptr usage
-// TODO later: examine why we need this in the first place
-#undef NULL
-// NOLINTBEGIN(clang-analyzer-optin.cplusplus.*)
-#define NULL nullptr
-// NOLINTEND(clang-analyzer-optin.cplusplus.*)
-#if defined(__GNUC__)
-#undef __null
-#define __null nullptr
+#if (ACC_CC_CLANG >= 0x080000)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wzero-as-null-pointer-constant"
+#elif (ACC_CC_GNUC >= 0x040700)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wzero-as-null-pointer-constant"
 #endif
 
 #undef MSDOS
@@ -316,6 +282,12 @@ STDMETHODIMP ProgressInfo::SetRatioInfo(const UInt64 *inSize, const UInt64 *outS
 #include <lzma-sdk/C/7zip/Compress/RangeCoder/RangeCoderBit.cpp>
 #undef RC_NORMALIZE
 
+#if (ACC_CC_CLANG >= 0x080000)
+#pragma clang diagnostic pop
+#elif (ACC_CC_GNUC >= 0x040700)
+#pragma GCC diagnostic pop
+#endif
+
 int upx_lzma_compress(const upx_bytep src, unsigned src_len, upx_bytep dst, unsigned *dst_len,
                       upx_callback_t *cb, int method, int level,
                       const upx_compress_config_t *cconf_parm, upx_compress_result_t *cresult) {
@@ -340,7 +312,8 @@ int upx_lzma_compress(const upx_bytep src, unsigned src_len, upx_bytep dst, unsi
     progress.cb = cb; // progress.Init()
 
     NCompress::NLZMA::CEncoder enc;
-    const PROPID propIDs[8] = {
+    constexpr unsigned NPROPS = 8;
+    static const PROPID propIDs[NPROPS] = {
         NCoderPropID::kPosStateBits,      // 0  pb    _posStateBits(2)
         NCoderPropID::kLitPosBits,        // 1  lp    _numLiteralPosStateBits(0)
         NCoderPropID::kLitContextBits,    // 2  lc    _numLiteralContextBits(3)
@@ -350,8 +323,7 @@ int upx_lzma_compress(const upx_bytep src, unsigned src_len, upx_bytep dst, unsi
         NCoderPropID::kMatchFinderCycles, // 6  mfc   _matchFinderCycles, _cutValue
         NCoderPropID::kMatchFinder        // 7  mf
     };
-    PROPVARIANT pr[8];
-    const unsigned nprops = 8;
+    PROPVARIANT pr[NPROPS];
     if (!prepare_result(res, src_len, method, level, lcconf))
         goto error;
     pr[0].vt = pr[1].vt = pr[2].vt = pr[3].vt = pr[4].vt = pr[5].vt = pr[6].vt = VT_UI4;
@@ -368,7 +340,7 @@ int upx_lzma_compress(const upx_bytep src, unsigned src_len, upx_bytep dst, unsi
     pr[7].bstrVal = ACC_PCAST(BSTR, ACC_UNCONST_CAST(wchar_t *, matchfinder));
 
     try {
-        if (enc.SetCoderProperties(propIDs, pr, nprops) != S_OK)
+        if (enc.SetCoderProperties(propIDs, pr, NPROPS) != S_OK)
             goto error;
         // encode properties in LZMA-style (5 bytes)
         if (enc.WriteCoderProperties(&os) != S_OK)

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -743,6 +743,7 @@ tribool PackWcle::canUnpack() {
     return readPackHeader(len) ? 1 : -1;
 }
 
+/*static*/
 void PackWcle::virt2rela(const le_object_table_entry_t *entr, unsigned *objn, unsigned *addr) {
     for (; *objn > 1; objn[0]--) {
         if (entr[*objn - 1].my_base_address > *addr)

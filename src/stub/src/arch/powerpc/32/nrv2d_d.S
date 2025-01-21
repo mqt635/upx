@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
-   Copyright (C) 2000-2023 John F. Reiser
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
+   Copyright (C) 2000-2025 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -80,7 +80,8 @@ get32d:
         addi src,src,4
 #endif  /*}*/
 
-        cmpl cr0,bits,hibit  // cr0  for   jnextb
+        ori t1,bits,1  // loaded bits might equal hibit; we want 'bgt' to succeed
+        cmpl  cr0,t1,hibit  // cr0  for   jnextb
         addc bits,bits,bits  // Carry for getnextb
         ori  bits,bits,1  // the flag bit
         ret

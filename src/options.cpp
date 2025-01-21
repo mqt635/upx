@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -28,10 +28,10 @@
 #include "conf.h"
 
 static Options global_options;
-Options *opt = &global_options; // also see class PackMaster
+Options *opt = &global_options; // also see class PackMaster for per-file local options
 
 #if WITH_THREADS
-std::mutex opt_lock_mutex;
+std::mutex opt_lock_mutex; // for locking "opt"
 #endif
 
 /*************************************************************************
@@ -39,7 +39,7 @@ std::mutex opt_lock_mutex;
 **************************************************************************/
 
 void Options::reset() noexcept {
-#define opt ERROR_DO_NOT_USE_opt // protect against using the wrong variable
+#define opt ERROR_DO_NOT_USE_opt // self-protect against using the wrong variable
     Options *const o = this;
     mem_clear(o);
     o->crp.reset();
@@ -66,7 +66,7 @@ void Options::reset() noexcept {
 #endif
     // support NO_COLOR, see https://no-color.org/
     // "... when present and not an empty string (regardless of its value)"
-    const char *e = getenv("NO_COLOR");
+    const char *e = upx_getenv("NO_COLOR");
     if (e && e[0])
         o->console = CON_FILE;
 
@@ -90,7 +90,7 @@ void Options::reset() noexcept {
 **************************************************************************/
 
 TEST_CASE("Options::reset") {
-#define opt ERROR_DO_NOT_USE_opt // protect against using the wrong variable
+#define opt ERROR_DO_NOT_USE_opt // self-protect against using the wrong variable
     COMPILE_TIME_ASSERT(std::is_standard_layout<Options>::value)
     COMPILE_TIME_ASSERT(std::is_nothrow_default_constructible<Options>::value)
     COMPILE_TIME_ASSERT(std::is_trivially_copyable<Options>::value)
