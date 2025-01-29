@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
-   Copyright (C) 2000-2023 John F. Reiser
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
+   Copyright (C) 2000-2025 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -56,9 +56,13 @@ PackUnix::PackUnix(InputFile *f) :
     COMPILE_TIME_ASSERT(sizeof(l_info) == 12)
     COMPILE_TIME_ASSERT(sizeof(p_info) == 12)
 
-    // Disable --android-shlib, file-by-file; undecided how to fix.
+    // opt->o_unix.android_shlib is global, but must be hint
+    // that applies only when an actual ET_DYN on EM_ARM (only!).
+    // User might say "--android-shlib" but give mulitple files
+    // where some are ET_EXEC.
     saved_opt_android_shlib = opt->o_unix.android_shlib;
-    opt->o_unix.android_shlib = 0;
+    opt->o_unix.android_shlib = 0;  // Must apply selectively
+    // Besides, cannot figure out why asl_slide_Shdrs does not work.
 }
 
 PackUnix::~PackUnix()
@@ -396,7 +400,7 @@ void PackUnix::packExtent(
             ph.c_len = ph.u_len;
             memcpy(obuf, ibuf, ph.c_len);
             // must update checksum of compressed data
-            ph.c_adler = upx_adler32(ibuf, ph.u_len, init_c_adler);
+            ph.c_adler = upx_adler32(ibuf, ph.u_len, ph.c_adler);
         }
 
         // write block sizes
@@ -405,8 +409,10 @@ void PackUnix::packExtent(
             unsigned hdr_c_len = 0;
             MemBuffer hdr_obuf;
             hdr_obuf.allocForCompression(hdr_u_len);
-            int r = upx_compress(hdr_ibuf, hdr_u_len, hdr_obuf, &hdr_c_len, nullptr,
-                ph_forced_method(ph.method), 10, nullptr, nullptr);
+            int r = upx_compress(hdr_ibuf, hdr_u_len, hdr_obuf, &hdr_c_len,
+                /* &progress callback */ nullptr,
+                ph_forced_method(ph.method), 10,
+                /* &config_t */ nullptr, /* &result_t */ nullptr);
             if (r != UPX_E_OK)
                 throwInternalError("header compression failed");
             if (hdr_c_len >= hdr_u_len)
@@ -481,7 +487,7 @@ unsigned PackUnix::unpackExtent(unsigned wanted, OutputFile *fo,
         int const sz_cpr = ph.c_len = get_te32(&hdr.sz_cpr);
         ph.filter_cto = hdr.b_cto8;
 
-        if (sz_unc == 0) { // must never happen while 0!=wanted
+        if (sz_unc == 0 || M_LZMA < hdr.b_method) {
             throwCantUnpack("corrupt b_info");
             break;
         }
@@ -491,8 +497,10 @@ unsigned PackUnix::unpackExtent(unsigned wanted, OutputFile *fo,
             throwCantUnpack("corrupt b_info");
 
         // place the input for overlapping de-compression
-        // FIXME: inlen cheats OVERHEAD; assumes small wanted peek length
-        int j = inlen + blocksize + OVERHEAD - sz_cpr;
+        int j = inlen + sz_unc + OVERHEAD - sz_cpr;
+        if (ibuf.getSize() < (unsigned)(j + sz_cpr)) {
+            throwCantUnpack("corrupt b_info");
+        }
         fi->readx(ibuf+j, sz_cpr);
         total_in += sz_cpr;
         // update checksum of compressed data
@@ -581,7 +589,7 @@ int PackUnix::find_overlay_offset(MemBuffer const &buf)
         return false;
 
     int l = ph.buf_offset + ph.getPackHeaderSize();
-    if (l < 0 || l + 4 > bufsize)
+    if (l < 0 || i + l + 4 > bufsize)
         throwCantUnpack("file corrupted");
     overlay_offset = get_te32(buf + i + l);
     if ((off_t)overlay_offset >= file_size)
@@ -617,9 +625,14 @@ void PackUnix::unpack(OutputFile *fo)
         fi->readx(&hbuf, sizeof(hbuf));
         orig_file_size = get_te32(&hbuf.p_filesize);
         blocksize = get_te32(&hbuf.p_blocksize);
+        off_t max_inflated = file_size * 273;  // zlib limit (256 + 16 + 1)
 
-        if (file_size > (off_t)orig_file_size || blocksize > orig_file_size)
+        if (max_inflated < orig_file_size
+        ||  max_inflated < blocksize
+        ||  file_size > (off_t)orig_file_size
+        ||  blocksize > orig_file_size) {
             throwCantUnpack("file header corrupted");
+        }
     }
     else
     {
@@ -653,14 +666,22 @@ void PackUnix::unpack(OutputFile *fo)
                 throwCompressedDataViolation();
             break;
         }
-        if (sz_unc <= 0 || sz_cpr <= 0)
-            throwCompressedDataViolation();
-        if (sz_cpr > sz_unc || sz_unc > blocksize)
-            throwCompressedDataViolation();
+        // Minimum compressed length: LZMA has 5-byte info header.
+        // NRV_d8 has 1-byte initial 8 flag bits, plus end-of-block marker
+        // (32 bit look-back offset of all 1s: encoded as 24 pairs of bits
+        // {not last, 1} then low 8-bits of 0xff; total: 8 + 2*24 + 8 bits
+        // ==> 8 bytes)
+        if (sz_unc <= 0 || sz_cpr <= 5u
+        ||  sz_cpr > sz_unc || sz_unc > blocksize)
+            throwCantUnpack("corrupt b_info %#x %#x", sz_unc, sz_cpr);
 
-        i = blocksize + OVERHEAD - sz_cpr;
+        // Compressed output has control bytes such as the 32-bit
+        // first flag bits of NRV_d32, the 5-byte info of LZMA, etc.
+        // Fuzzers may try sz_cpr shorter than possible.
+        // Use some OVERHEAD for safety.
+        i = blocksize + OVERHEAD - upx::umax(12u, sz_cpr);
         if (i < 0)
-            throwCantUnpack("corrupt b_info");
+            throwCantUnpack("corrupt b_info %#x %#x", sz_cpr, blocksize);
         fi->readx(buf+i, sz_cpr);
         // update checksum of compressed data
         c_adler = upx_adler32(buf + i, sz_cpr, c_adler);

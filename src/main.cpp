@@ -1,9 +1,9 @@
-/* main.cpp --
+/* main.cpp -- main entry
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -37,6 +37,9 @@
 **************************************************************************/
 
 #ifndef OPTIONS_VAR
+// historical note: "UPX_OPTIONS" would be a better name, but back in the old
+// days environment variables used to be short; and we cannot change that now
+// because of backward compatibility issues
 #define OPTIONS_VAR "UPX"
 #endif
 
@@ -215,7 +218,7 @@ static void check_and_update_options(int i, int argc) {
 **************************************************************************/
 
 static void e_help(void) {
-    show_help();
+    show_help(0);
     e_exit(EXIT_USAGE);
 }
 
@@ -340,7 +343,8 @@ done:
 }
 
 template <class T, T default_value, T min_value, T max_value>
-static int getoptvar(OptVar<T, default_value, min_value, max_value> *var, const char *arg_fatal) {
+static int getoptvar(upx::OptVar<T, default_value, min_value, max_value> *var,
+                     const char *arg_fatal) {
     T v = default_value;
     int r = getoptvar(&v, min_value, max_value, arg_fatal);
     if (r == 0)
@@ -383,6 +387,8 @@ static int do_option(int optc, const char *arg) {
         set_cmd(CMD_HELP);
         break;
     case 'h' + 256:
+    case 996:
+    case 997:
 #if 1
         if (!acc_isatty(STDOUT_FILENO)) {
             /* according to GNU standards */
@@ -390,7 +396,7 @@ static int do_option(int optc, const char *arg) {
             opt->console = CON_FILE;
         }
 #endif
-        show_help(1);
+        show_help(optc == 996 ? 1 : (optc == 997 ? 3 : 2));
         e_exit(EXIT_OK);
         break;
     case 'i':
@@ -733,6 +739,9 @@ static int do_option(int optc, const char *arg) {
     case 677:
         opt->o_unix.force_pie = true;
         break;
+    case 678:
+        opt->o_unix.android_old = true;
+        break;
     // ps1/exe
     case 670:
         opt->ps1_exe.boot_only = true;
@@ -789,7 +798,7 @@ static int do_option(int optc, const char *arg) {
         break;
 
 #if !defined(DOCTEST_CONFIG_DISABLE)
-    case 999: // doctest --dt-XXX option
+    case 999: // [doctest] --dt-XXX option; ignored here, see upx_doctest_check()
         break;
 #endif
 
@@ -813,7 +822,7 @@ int main_get_options(int argc, char **argv) {
         // commands
         {"best", 0x10, N, 900},        // compress best
         {"brute", 0x10, N, 901},       // compress best, brute force
-        {"ultra-brute", 0x10, N, 902}, // compress best, brute force
+        {"ultra-brute", 0x10, N, 902}, // compress best, ultra-brute force
         {"decompress", 0, N, 'd'},     // decompress
         {"fast", 0x10, N, '1'},        // compress faster
         {"fileinfo", 0x10, N, 909},    // display info about file
@@ -923,7 +932,7 @@ int main_get_options(int argc, char **argv) {
         // atari/tos
         {"split-segments", 0x90, N, 650},
         // darwin/macho
-        {"force-macos", 0x90, N, 690}, // undocumented temporary until we fix macOS 13+
+        {"force-macos", 0x90, N, 690}, // undocumented temporary option until we do fix macOS 13+
         // djgpp2/coff
         {"coff", 0x90, N, 610}, // produce COFF output
         // dos/exe
@@ -947,6 +956,7 @@ int main_get_options(int argc, char **argv) {
         {"preserve-build-id", 0, N, 675},
         {"android-shlib", 0, N, 676},
         {"force-pie", 0x90, N, 677},
+        {"android-old", 0, N, 678},
         // ps1/exe
         {"boot-only", 0x90, N, 670},
         {"no-align", 0x90, N, 671},
@@ -963,7 +973,7 @@ int main_get_options(int argc, char **argv) {
         {"strip-relocs", 0x12, N, 634},
         {"keep-resource", 0x31, N, 635},
 
-#if !defined(DOCTEST_CONFIG_DISABLE)
+#if !defined(DOCTEST_CONFIG_DISABLE) // accept and ignore some doctest --dt-XXX options
         // [doctest] Query flags - the program quits after them. Available:
         {"dt-c", 0x10, N, 999},
         {"dt-count", 0x10, N, 999},
@@ -1020,7 +1030,7 @@ void main_get_envoptions() {
         // commands
         {"best", 0x10, N, 900},        // compress best
         {"brute", 0x10, N, 901},       // compress best, brute force
-        {"ultra-brute", 0x10, N, 902}, // compress best, brute force
+        {"ultra-brute", 0x10, N, 902}, // compress best, ultra-brute force
         {"fast", 0x10, N, '1'},        // compress faster
 
         // options
@@ -1086,7 +1096,7 @@ void main_get_envoptions() {
     static const char sep[] = " \t";
     char shortopts[256];
 
-    var = getenv(OPTIONS_VAR);
+    var = upx_getenv(OPTIONS_VAR);
     if (var == nullptr || !var[0])
         return;
     env = strdup(var);
@@ -1111,7 +1121,7 @@ void main_get_envoptions() {
     if (targc > 1)
         targv = (const char **) upx_calloc(targc + 1, sizeof(char *));
     if (targv == nullptr) {
-        free(env);
+        ::free(env);
         return;
     }
 
@@ -1150,8 +1160,8 @@ void main_get_envoptions() {
         e_envopt(targv[mfx_optind]);
 
     /* clean up */
-    free(targv);
-    free(env);
+    ::free(targv); // NOLINT(bugprone-multi-level-implicit-pointer-conversion)
+    ::free(env);
 #endif /* defined(OPTIONS_VAR) */
 }
 
@@ -1169,9 +1179,14 @@ static void first_options(int argc, char **argv) {
         if (strcmp(argv[i], "--version-short") == 0)
             do_option(998, argv[i]);
     }
-    for (i = 1; i < n; i++)
+    for (i = 1; i < n; i++) {
         if (strcmp(argv[i], "--help") == 0)
             do_option('h' + 256, argv[i]);
+        if (strcmp(argv[i], "--help-short") == 0) // undocumented and subject to change
+            do_option(996, argv[i]);
+        if (strcmp(argv[i], "--help-verbose") == 0) // undocumented and subject to change
+            do_option(997, argv[i]);
+    }
     for (i = 1; i < n; i++)
         if (strcmp(argv[i], "--no-env") == 0)
             do_option(519, argv[i]);
@@ -1200,6 +1215,7 @@ int upx_main(int argc, char *argv[]) may_throw {
     }
 
     // Allow serial re-use of upx_main() as a subroutine
+    exit_code = EXIT_OK;
     opt->reset();
 
 #if (ACC_OS_CYGWIN || ACC_OS_DOS16 || ACC_OS_DOS32 || ACC_OS_EMX || ACC_OS_TOS || ACC_OS_WIN16 ||  \
@@ -1236,7 +1252,9 @@ int upx_main(int argc, char *argv[]) may_throw {
     assert(upx_nrv_init() == 0);
 #endif
     assert(upx_ucl_init() == 0);
+#if (WITH_ZLIB)
     assert(upx_zlib_init() == 0);
+#endif
 #if (WITH_ZSTD)
     assert(upx_zstd_init() == 0);
 #endif
@@ -1269,7 +1287,7 @@ int upx_main(int argc, char *argv[]) may_throw {
         e_exit(EXIT_OK);
         break;
     case CMD_HELP:
-        show_help(1);
+        show_help(2);
         e_exit(EXIT_OK);
         break;
     case CMD_LICENSE:
@@ -1300,14 +1318,15 @@ int upx_main(int argc, char *argv[]) may_throw {
 
     /* start work */
     set_term(stdout);
-    if (do_files(i, argc, argv) != 0)
+    if (do_files(i, argc, argv) != 0) {
+        assert(exit_code != 0);
         return exit_code;
+    }
 
     if (gitrev[0]) {
         // also see UPX_CONFIG_DISABLE_GITREV in CMakeLists.txt
         bool warn_gitrev = true;
-        const char *ee = getenv("UPX_DEBUG_DISABLE_GITREV_WARNING");
-        if (ee && ee[0] && strcmp(ee, "1") == 0)
+        if (is_envvar_true("UPX_DEBUG_DISABLE_GITREV_WARNING"))
             warn_gitrev = false;
         if (warn_gitrev) {
             FILE *f = stdout;
@@ -1355,8 +1374,7 @@ int __acc_cdecl_main main(int argc, char *argv[]) /*noexcept*/ {
     _set_abort_behavior(_WRITE_ABORT_MSG, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
     acc_wildargv(&argc, &argv);
-    // srand((int) time(nullptr));
-    srand((int) clock());
+    upx_rand_init();
 
     // info: main() is implicitly "noexcept", so we need a try block
 #if 0

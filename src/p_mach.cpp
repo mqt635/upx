@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 2004-2023 John Reiser
+   Copyright (C) 2004-2025 John Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -43,6 +43,9 @@
 #endif
 #if (ACC_CC_GNUC >= 0x040200)
 #  pragma GCC diagnostic ignored "-Wcast-align"
+#endif
+#if defined(__CHERI__) && defined(__CHERI_PURE_CAPABILITY__)
+#  pragma clang diagnostic ignored "-Wcheri-capability-misuse" // TODO later
 #endif
 
 static const CLANG_FORMAT_DUMMY_STATEMENT
@@ -117,7 +120,7 @@ static const Lc_seg_info lc_seg_info[2] = {
 // > 0 : actual size
 // < 0 : neg. of minimum size; total must be (0 mod 4) or (0 mod 8)
 //
-static const signed char lc_cmd_size[] = {
+static const upx_int8_t lc_cmd_size[] = {
 // 2021-12: gcc 11.2.1 does not support 'sizeof' in designated initializer.
 // 2021-12: gcc 11.2.1 does not support [enum] as designator.
 // 2021-12: "clang++-10 -std=c++14":
@@ -1462,11 +1465,7 @@ void PackMachBase<T>::pack1(OutputFile *const fo, Filter &/*ft*/)  // generate e
 #define WANT_MACH_HEADER_ENUM 1
 #include "p_mach_enum.h"
 
-static unsigned
-umin(unsigned a, unsigned b)
-{
-    return (a <= b) ? a : b;
-}
+#define MAX_N_CMDS 256
 
 template <class T>
 void PackMachBase<T>::unpack(OutputFile *fo)
@@ -1512,6 +1511,9 @@ void PackMachBase<T>::unpack(OutputFile *fo)
     if ((unsigned)file_size < ph.c_len || ph.c_len == 0 || ph.u_len == 0)
         throwCantUnpack("file header corrupted");
     ph.method = bhdr.b_method;
+    if (ph.method < M_NRV2B_LE32
+    ||  ph.method > M_BZIP2)
+        throwCantUnpack("file header bad method");
     ph.filter = bhdr.b_ftid;
     ph.filter_cto = bhdr.b_cto8;
 
@@ -1526,7 +1528,7 @@ void PackMachBase<T>::unpack(OutputFile *fo)
     ||  mhdri.filetype   != mhdr->filetype)
         throwCantUnpack("file header corrupted");
     unsigned const ncmds = mhdr->ncmds;
-    if (!ncmds || 256 < ncmds) { // arbitrary limit
+    if (!ncmds || MAX_N_CMDS < ncmds) { // arbitrary limit
         char msg[40]; snprintf(msg, sizeof(msg),
             "bad Mach_header.ncmds = %d", ncmds);
         throwCantUnpack(msg);
@@ -1544,7 +1546,7 @@ void PackMachBase<T>::unpack(OutputFile *fo)
                 "bad packed Mach load_command @%#x", ptr_udiff_bytes(ptr, mhdr));
             throwCantUnpack(msg);
         }
-        memcpy(&msegcmd[j], ptr, umin(sizeof(Mach_segment_command), cmdsize));
+        memcpy(&msegcmd[j], ptr, upx::umin(usizeof(Mach_segment_command), cmdsize));
         headway -= cmdsize;
         ptr     += cmdsize;
     }
@@ -1640,6 +1642,12 @@ tribool PackMachBase<T>::canUnpack()
 
     unsigned const ncmds = mhdri.ncmds;
     int headway = (int)mhdri.sizeofcmds;
+    if (!ncmds || MAX_N_CMDS < ncmds || file_size < headway
+     ||  headway < 4*4 ) {
+        char msg[80]; snprintf(msg, sizeof(msg),
+            "bad Mach_header ncmds=%d  sizeofcmds=0x%x", ncmds, headway);
+        throwCantUnpack(msg);
+    }
     // old style:   LC_SEGMENT + LC_UNIXTHREAD  [smaller, varies by $ARCH]
     // new style: 3*LC_SEGMENT + LC_MAIN        [larger]
     if ((2 == ncmds
@@ -1673,10 +1681,19 @@ tribool PackMachBase<T>::canUnpack()
         unsigned const cmd = ptr->cmd;
         unsigned const cmdsize = ptr->cmdsize;
         if (is_bad_linker_command(cmd, cmdsize, headway, lc_seg, sizeof(Addr))) {
-                infoWarning("bad Mach_command[%u]{@0x%zx,+0x%x}: file_size=0x%lx  cmdsize=0x%lx",
+                opt->info_mode += 1;
+                infoWarning("bad Mach_command[%u]{@0x%zx,+0x%x}=0x%x: file_size=0x%lx  cmdsize=0x%lx",
                     j, (sizeof(mhdri) + ((char const *)ptr - (char const *)rawmseg)), headway,
-                    (unsigned long) file_size, (unsigned long)ptr->cmdsize);
+                    cmd, (unsigned long) file_size, (unsigned long)ptr->cmdsize);
+                opt->info_mode -= 1;
                 throwCantUnpack("file corrupted");
+        }
+        headway -= cmdsize;
+        if (headway < 0) {
+            infoWarning("Mach_command[%u]{@%lu}.cmdsize = %u", j,
+                (unsigned long) (sizeof(mhdri) + mhdri.sizeofcmds - (headway + ptr->cmdsize)),
+                (unsigned)ptr->cmdsize);
+            throwCantUnpack("sum(.cmdsize) exceeds .sizeofcmds");
         }
         if (lc_seg == ptr->cmd) {
             Mach_segment_command const *const segptr = (Mach_segment_command const *)ptr;
@@ -1713,12 +1730,6 @@ tribool PackMachBase<T>::canUnpack()
                 }
             }
             pos_next = segptr->filesize + segptr->fileoff;
-            if ((headway -= ptr->cmdsize) < 0) {
-                infoWarning("Mach_command[%u]{@%lu}.cmdsize = %u", j,
-                    (unsigned long) (sizeof(mhdri) + mhdri.sizeofcmds - (headway + ptr->cmdsize)),
-                    (unsigned)ptr->cmdsize);
-                throwCantUnpack("sum(.cmdsize) exceeds .sizeofcmds");
-            }
         }
         else if (Mach_command::LC_UNIXTHREAD==ptr->cmd) {
             rip = entryVMA = threadc_getPC(ptr);
@@ -1746,6 +1757,10 @@ tribool PackMachBase<T>::canUnpack()
         else { // PackHeader follows loader at __LINKEDIT
             if ((off_t)bufsize > (fi->st_size() - offLINK)) {
                 bufsize = fi->st_size() - offLINK;
+                if (bufsize < sizeof(struct b_info)) {
+                    throwCantUnpack("bad offLINK %p %p",
+                        (void *)offLINK, (void *)file_size);
+                }
             }
             fi->seek(offLINK, SEEK_SET);
         }
@@ -1889,7 +1904,7 @@ tribool PackMachBase<T>::canUnpack()
     if (       overlay_offset < sz_mach_headers
     ||  (off_t)overlay_offset >= file_size) {
         infoWarning("file corrupted: %s", fi->getName());
-        MemBuffer buf2(umin(1<<14, file_size));
+        MemBuffer buf2(upx::umin(1u<<14, file_size_u32));
         fi->seek(sz_mach_headers, SEEK_SET);
         fi->readx(buf2, buf2.getSize());
         unsigned const *p = (unsigned const *)&buf2[0];
@@ -1948,11 +1963,11 @@ tribool PackMachBase<T>::canPack()
     my_cpusubtype = mhdri.cpusubtype;
 
     unsigned const ncmds = mhdri.ncmds;
-    if (!ncmds || 256 < ncmds) { // arbitrary, but guard against garbage
-        throwCantPack("256 < Mach_header.ncmds");
+    if (!ncmds || MAX_N_CMDS < ncmds) { // arbitrary, but guard against garbage
+        throwCantPack("%d < Mach_header.ncmds", MAX_N_CMDS);
     }
     unsigned const sz_mhcmds = (unsigned)mhdri.sizeofcmds;
-    unsigned headway = umin(sz_mhcmds, file_size - sizeof(mhdri));
+    unsigned headway = upx::umin(sz_mhcmds, file_size_u32 - usizeof(mhdri));
     if (headway < sz_mhcmds) {
         char buf[32]; snprintf(buf, sizeof(buf), "bad sizeofcmds %d", sz_mhcmds);
         throwCantPack(buf);
@@ -1973,9 +1988,10 @@ tribool PackMachBase<T>::canPack()
         unsigned const cmd     = segptr->cmd &~ LC_REQ_DYLD;
         unsigned const cmdsize = segptr->cmdsize;
         if (is_bad_linker_command(cmd, cmdsize, headway, lc_seg, sizeof(Addr))) {
-            char buf[80]; snprintf(buf, sizeof(buf),
-                "bad Mach_command[%d]{cmd=%#x, size=%#x}", j,
-                cmd, cmdsize);
+            char buf[200]; snprintf(buf, sizeof(buf),
+                "bad Mach_command[%u]{@0x%zx,+0x%x}=0x%x: file_size=0x%lx  cmdsize=0x%x",
+                    j, (sizeof(mhdri) + ((char const *)segptr - (char const *)rawmseg)), headway,
+                    cmd, (unsigned long) file_size, cmdsize);
             throwCantPack(buf);
         }
         headway -= cmdsize;
@@ -2229,17 +2245,19 @@ tribool PackMachBase<T>::canPack()
             break;
         }
     }
-#if !defined(DEBUG)
-    // disable macOS packing in Release builds until we do support macOS 13+
+    // disable macOS packing until we do support macOS 13+
     //   https://github.com/upx/upx/issues/612
-    if (my_cputype == CPU_TYPE_X86_64 || my_cputype == CPU_TYPE_ARM64)
-        if (!opt->darwin_macho.force_macos)
+    if (my_cputype == CPU_TYPE_X86_64 || my_cputype == CPU_TYPE_ARM64) {
+        bool force = opt->darwin_macho.force_macos || is_envvar_true("UPX_DEBUG_FORCE_PACK_MACOS");
+        if (!force)
             throwCantPack("macOS is currently not supported (try --force-macos)");
-#endif
+    }
     return true;
 }
 
+// instantiate instances
 template class PackMachBase<MachClass_BE32>;
+// template class PackMachBase<MachClass_BE64>; // currently not used
 template class PackMachBase<MachClass_LE32>;
 template class PackMachBase<MachClass_LE64>;
 
@@ -2263,6 +2281,11 @@ unsigned PackMachFat::check_fat_head()
     }
     for (unsigned j=0; j < nfat; ++j) {
         unsigned const align = arch[j].align;
+        if (24 < align) {
+            char msg[80]; snprintf(msg, sizeof(msg),
+                "bad fat_arch alignment 0x%x > 24", align);
+            throwCantPack(msg);
+        }
         unsigned const mask = ~(~0u<<align);
         unsigned const size = arch[j].size;
         unsigned const offset = arch[j].offset;

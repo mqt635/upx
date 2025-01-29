@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
-   Copyright (C) 2001-2023 John F. Reiser
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
+   Copyright (C) 2001-2025 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -279,15 +279,6 @@ PackLinuxI386::pack4(OutputFile *fo, Filter &ft)
     fo->rewrite(&elfout, overlay_offset);
 }
 
-static unsigned
-umax(unsigned a, unsigned b)
-{
-    if (a <= b) {
-        return b;
-    }
-    return a;
-}
-
 Linker *PackLinuxI386::newLinker() const
 {
     return new ElfLinkerX86;
@@ -311,7 +302,7 @@ PackLinuxI386::buildLinuxLoader(
          usizeof(l_info);
     if (0 == get_le32(fold_hdrlen + fold)) {
         // inconsistent SIZEOF_HEADERS in *.lds (ld, binutils)
-        fold_hdrlen = umax(0x80, fold_hdrlen);
+        fold_hdrlen = upx::umax(0x80u, fold_hdrlen);
     }
   }
     // This adds the definition to the "library", to be used later.
@@ -382,9 +373,18 @@ PackLinuxI386::buildLinuxLoader(
         if (bele->isBE()) // big endian - bswap32
             properties = bswap32(properties);
         linker->defineSymbol("lzma_properties", properties);
-        // -2 for properties
-        linker->defineSymbol("lzma_c_len", ph.c_len - 2);
-        linker->defineSymbol("lzma_u_len", ph.u_len);
+
+        // These lengths assume only one block (typ. 524288 bytes: 0.5 MiB).
+        // i386 handles more than one block, and computes the lengths
+        // dynamically from struct b_info.  Why do others need these?
+        if (linker->findSymbol("lzma_c_len", false)) {
+            // -2 for properties
+            linker->defineSymbol("lzma_c_len", ph.c_len - 2);
+        }
+        if (linker->findSymbol("lzma_u_len", false)) {
+            linker->defineSymbol("lzma_u_len", ph.c_len);
+        }
+
         unsigned const stack = getDecompressorWrkmemSize();
         linker->defineSymbol("lzma_stack_adjust", 0u - stack);
     }

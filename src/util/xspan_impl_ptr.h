@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -123,11 +123,12 @@ public:
         return assign(Self(other));
     }
 
+    // cast to a different type (creates a new value)
     template <class U>
     inline CSelf<U> type_cast() const {
         typedef CSelf<U> R;
         typedef typename R::pointer rpointer;
-        return R(upx::ptr_reinterpret_cast<rpointer>(ptr));
+        return R(upx::ptr_static_cast<rpointer>(ptr));
     }
 
     // comparison
@@ -206,7 +207,7 @@ public: // raw access
     pointer raw_bytes(size_t bytes) const {
         assertInvariants();
         if (bytes > 0) {
-            if __acc_cte (ptr == nullptr)
+            if very_unlikely (ptr == nullptr)
                 xspan_fail_nullptr();
         }
         return ptr;

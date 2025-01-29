@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -43,22 +43,22 @@
 XSPAN_NAMESPACE_BEGIN
 
 // HINT: set env-var "UPX_DEBUG_DOCTEST_DISABLE=1" for improved debugging experience
-noinline void xspan_fail_nullptr(void) may_throw;
-noinline void xspan_fail_nullbase(void) may_throw;
-noinline void xspan_fail_not_same_base(void) may_throw;
-noinline void xspan_fail_range_nullptr(void) may_throw;
-noinline void xspan_fail_range_nullbase(void) may_throw;
-noinline void xspan_fail_range_range(void) may_throw;
+noreturn void xspan_fail_nullptr(void) may_throw;
+noreturn void xspan_fail_nullbase(void) may_throw;
+noreturn void xspan_fail_not_same_base(void) may_throw;
+noreturn void xspan_fail_range_nullptr(void) may_throw;
+noreturn void xspan_fail_range_nullbase(void) may_throw;
+noreturn void xspan_fail_range_range(void) may_throw;
 void xspan_check_range(const void *ptr, const void *base, ptrdiff_t size_in_bytes) may_throw;
 
 // help constructor to distinguish between number of elements and bytes
 struct XSpanCount final {
     explicit forceinline_constexpr XSpanCount(size_t n) noexcept : count(n) {}
-    size_t count; // public
+    const size_t count; // public
 };
 struct XSpanSizeInBytes final {
     explicit forceinline_constexpr XSpanSizeInBytes(size_t bytes) noexcept : size_in_bytes(bytes) {}
-    size_t size_in_bytes; // public
+    const size_t size_in_bytes; // public
 };
 
 template <class T>
@@ -87,7 +87,7 @@ ACC_COMPILE_TIME_ASSERT_HEADER(ValueForSizeOf<int>::value == 4)
 
 #ifndef xspan_mem_size_impl
 template <class T>
-inline size_t xspan_mem_size_impl(size_t n) {
+static inline size_t xspan_mem_size_impl(size_t n) {
 #ifdef UPX_VERSION_HEX
     // check for overflow and sane limits
     return mem_size(sizeof(T), n);
@@ -98,12 +98,12 @@ inline size_t xspan_mem_size_impl(size_t n) {
 #endif
 
 template <class T>
-inline size_t xspan_mem_size(size_t n) {
+static inline size_t xspan_mem_size(size_t n) {
     return xspan_mem_size_impl<typename TypeForSizeOf<T>::type>(n);
 }
 
 template <class T>
-inline void xspan_mem_size_assert_ptrdiff(ptrdiff_t n) {
+static inline void xspan_mem_size_assert_ptrdiff(ptrdiff_t n) {
     if (n >= 0)
         (void) xspan_mem_size<T>((size_t) n);
     else
@@ -111,7 +111,7 @@ inline void xspan_mem_size_assert_ptrdiff(ptrdiff_t n) {
 }
 
 #if __cplusplus >= 201103L && 0
-// unfortunately doesnt't work with some older versions of libstdc++
+// unfortunately doesn't work with some older versions of libstdc++
 // (TODO later: we now require C++17, so this now probably works on all supported platforms)
 template <class From, class To>
 struct XSpan_is_convertible : public std::is_convertible<From *, To *> {};

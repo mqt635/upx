@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
-   Copyright (C) 2002-2023 Jens Medoch
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
+   Copyright (C) 2002-2025 Jens Medoch
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -75,9 +75,7 @@ static const CLANG_FORMAT_DUMMY_STATEMENT
 **************************************************************************/
 
 PackPs1::PackPs1(InputFile *f)
-    : super(f), isCon(!opt->ps1_exe.boot_only), is32Bit(!opt->ps1_exe.do_8bit), buildPart2(0),
-      foundBss(0), sa_cnt(0), overlap(0), sz_lunc(0), sz_lcpr(0), pad_code(0), bss_start(0),
-      bss_end(0) {
+    : super(f), isCon(!opt->ps1_exe.boot_only), is32Bit(!opt->ps1_exe.do_8bit) {
     bele = &N_BELE_RTP::le_policy;
 
     COMPILE_TIME_ASSERT(sizeof(ps1_exe_t) == 136)
@@ -136,12 +134,10 @@ bool PackPs1::readBkupHeader() {
 }
 
 #define INIT_BH_BKUP(p, l)                                                                         \
-    ACC_BLOCK_BEGIN                                                                                \
-    {                                                                                              \
+    do {                                                                                           \
         (p)->id = '1';                                                                             \
         (p)->len = l;                                                                              \
-    }                                                                                              \
-    ACC_BLOCK_END
+    } while (0)
 #define ADLER16(a) (((a) >> 16) ^ ((a) &0xffff))
 
 void PackPs1::putBkupHeader(const byte *src, byte *dst, unsigned *len) {
@@ -158,7 +154,7 @@ void PackPs1::putBkupHeader(const byte *src, byte *dst, unsigned *len) {
         if (r != UPX_E_OK || sz_cbh >= SZ_IH_BKUP)
             throwInternalError("header compression failed");
         INIT_BH_BKUP(p, sz_cbh);
-        *len = ALIGN_UP(sz_cbh + (unsigned) sizeof(ps1_exe_chb_t) - 1, 4u);
+        *len = ALIGN_UP(sz_cbh + usizeof(ps1_exe_chb_t) - 1, 4u);
         p->ih_csum = ADLER16(upx_adler32(&ih.epc, SZ_IH_BKUP));
         memcpy(dst, cpr_bh, SZ_IH_BKUP);
     } else
@@ -304,7 +300,7 @@ void PackPs1::buildLoader(const Filter *) {
         } else
             initLoader(stub_mipsel_r3000_ps1, sizeof(stub_mipsel_r3000_ps1));
 
-        pad_code = ALIGN_GAP((ph.c_len + (isCon ? sz_lcpr : 0)), 4u);
+        pad_code = ALIGN_UP_GAP((ph.c_len + (isCon ? sz_lcpr : 0)), 4u);
         assert(pad_code < 4);
         static const byte pad_buffer[4] = {0, 0, 0, 0};
         linker->addSection("pad.code", pad_buffer, pad_code, 0);

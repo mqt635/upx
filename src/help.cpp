@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -25,10 +25,16 @@
    <markus@oberhumer.com>               <ezerotven+github@gmail.com>
  */
 
+#if defined(_WIN32_WINNT)
+static constexpr long long initial_win32_winnt = _WIN32_WINNT + 0LL;
+#else
+static constexpr long long initial_win32_winnt = 0;
+#endif
 #define WANT_WINDOWS_LEAN_H 1 // _WIN32_WINNT
 #include "conf.h"
 #include "compress/compress.h" // upx_ucl_version_string()
 // for list_all_packers():
+#include "filter.h" // Filter::isValidFilter
 #include "packer.h"
 #include "packmast.h" // PackMaster::visitAllPackers
 
@@ -95,47 +101,86 @@ void show_usage(void) {
 **************************************************************************/
 
 namespace {
-struct PackerNames {
+struct PackerNames final {
+    explicit PackerNames() noexcept = default;
+    ~PackerNames() noexcept = default;
+
+    static constexpr unsigned MAX_NAMES = 64; // arbitrary limit, increase as needed
     struct Entry {
         const char *fname;
         const char *sname;
+        unsigned methods_count;
+        unsigned filters_count;
+        unsigned methods[PackerBase::MAX_METHODS];
+        unsigned filters[PackerBase::MAX_FILTERS];
     };
-    Entry names[64];
-    size_t names_count;
-    const Options *o;
-    PackerNames() : names_count(0), o(nullptr) {}
+    Entry names_array[MAX_NAMES];
+    Entry *names[MAX_NAMES];
+    unsigned names_count = 0;
+    const Options *o = nullptr;
+
     void add(const PackerBase *pb) {
-        assert_noexcept(names_count < 64);
-        names[names_count].fname = pb->getFullName(o);
-        names[names_count].sname = pb->getName();
-        names_count++;
+        assert_noexcept(names_count < MAX_NAMES);
+        Entry &e = names_array[names_count];
+        names[names_count++] = &e;
+        e.fname = pb->getFullName(o);
+        e.sname = pb->getName();
+        e.methods_count = e.filters_count = 0;
+        for (const int *m = pb->getCompressionMethods(M_ALL, 10); *m != M_END; m++) {
+            if (*m >= 0) {
+                assert_noexcept(Packer::isValidCompressionMethod(*m));
+                assert_noexcept(e.methods_count < PackerBase::MAX_METHODS);
+                e.methods[e.methods_count++] = *m;
+            }
+        }
+        for (const int *f = pb->getFilters(); f != nullptr && *f != FT_END; f++) {
+            if (*f >= 0) {
+                assert_noexcept(Filter::isValidFilter(*f));
+                assert_noexcept(e.filters_count < PackerBase::MAX_FILTERS);
+                e.filters[e.filters_count++] = *f;
+            }
+        }
+        upx_gnomesort(e.methods, e.methods_count, sizeof(e.methods[0]), ne32_compare);
+        upx_gnomesort(e.filters, e.filters_count, sizeof(e.filters[0]), ne32_compare);
     }
     static tribool visit(PackerBase *pb, void *user) {
+        NO_fprintf(stderr, "visit %s\n", pb->getFullName(nullptr));
         PackerNames *self = (PackerNames *) user;
         self->add(pb);
         return false;
     }
-    static int __acc_cdecl_qsort cmp_fname(const void *a, const void *b) {
-        return strcmp(((const Entry *) a)->fname, ((const Entry *) b)->fname);
-    }
-    static int __acc_cdecl_qsort cmp_sname(const void *a, const void *b) {
-        return strcmp(((const Entry *) a)->sname, ((const Entry *) b)->sname);
+    static int __acc_cdecl_qsort compare_fname(const void *aa, const void *bb) {
+        const Entry *a = *(const Entry *const *) aa;
+        const Entry *b = *(const Entry *const *) bb;
+        return strcmp(a->fname, b->fname);
     }
 };
 } // namespace
 
-static void list_all_packers(FILE *f, int verbose) {
+static noinline void list_all_packers(FILE *f, int verbose) {
     Options o;
     o.reset();
     PackerNames pn;
     pn.o = &o;
     (void) PackMaster::visitAllPackers(PackerNames::visit, nullptr, &o, &pn);
-    upx_qsort(pn.names, pn.names_count, sizeof(PackerNames::Entry), PackerNames::cmp_fname);
+    // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
+    upx_gnomesort(pn.names, pn.names_count, sizeof(pn.names[0]), PackerNames::compare_fname);
     size_t pos = 0;
-    for (size_t i = 0; i < pn.names_count; ++i) {
-        const char *fn = pn.names[i].fname;
-        const char *sn = pn.names[i].sname;
-        if (verbose > 0) {
+    for (size_t i = 0; i < pn.names_count; i++) {
+        const PackerNames::Entry &e = *pn.names[i];
+        const char *const fn = e.fname;
+        const char *const sn = e.sname;
+        if (verbose >= 3) {
+            con_fprintf(f, "    %-36s %s\n", fn, sn);
+            con_fprintf(f, "        methods:");
+            for (size_t j = 0; j < e.methods_count; j++)
+                con_fprintf(f, " %#x", e.methods[j]);
+            con_fprintf(f, "\n");
+            con_fprintf(f, "        filters:");
+            for (size_t j = 0; j < e.filters_count; j++)
+                con_fprintf(f, " %#x", e.filters[j]);
+            con_fprintf(f, "\n");
+        } else if (verbose >= 2) {
             con_fprintf(f, "    %-36s %s\n", fn, sn);
         } else {
             size_t fl = strlen(fn);
@@ -151,7 +196,7 @@ static void list_all_packers(FILE *f, int verbose) {
             }
         }
     }
-    if (verbose <= 0 && pn.names_count)
+    if (verbose < 2 && pn.names_count)
         con_fprintf(f, "\n");
 }
 
@@ -420,28 +465,31 @@ void show_version(bool one_line) {
     fprintf(f, "doctest C++ testing framework version %s\n", DOCTEST_VERSION_STR);
 #endif
     // clang-format off
-    fprintf(f, "Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer\n");
-    fprintf(f, "Copyright (C) 1996-2023 Laszlo Molnar\n");
-    fprintf(f, "Copyright (C) 2000-2023 John F. Reiser\n");
-    fprintf(f, "Copyright (C) 2002-2023 Jens Medoch\n");
+    fprintf(f, "Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer\n");
+    fprintf(f, "Copyright (C) 1996-2025 Laszlo Molnar\n");
+    fprintf(f, "Copyright (C) 2000-2025 John F. Reiser\n");
 #if (WITH_ZLIB)
-    fprintf(f, "Copyright (C) 1995" "-2023 Jean-loup Gailly and Mark Adler\n");
+    // see vendor/zlib/LICENSE
+    fprintf(f, "Copyright (C) 1995" "-2024 Jean-loup Gailly and Mark Adler\n");
 #endif
 #if (WITH_LZMA)
+    // see vendor/lzma-sdk
     fprintf(f, "Copyright (C) 1999" "-2006 Igor Pavlov\n");
 #endif
 #if (WITH_ZSTD)
     // see vendor/zstd/LICENSE; main author is Yann Collet
-    fprintf(f, "Copyright (C) 2015" "-2023 Meta Platforms, Inc. and affiliates\n");
+    fprintf(f, "Copyright (C) 2015" "-2024 Meta Platforms, Inc. and affiliates\n");
 #endif
 #if (WITH_BZIP2)
-    fprintf(f, "Copyright (C) 1996" "-2010 Julian Seward\n"); // see <bzlib.h>
+    // see vendor/bzip2/bzlib.h
+    fprintf(f, "Copyright (C) 1996" "-2010 Julian Seward\n");
 #endif
 #if !defined(DOCTEST_CONFIG_DISABLE)
+    // see vendor/doctest/LICENSE.txt
     fprintf(f, "Copyright (C) 2016" "-2023 Viktor Kirilov\n");
 #endif
-    fprintf(f, "UPX comes with ABSOLUTELY NO WARRANTY; for details type '%s -L'.\n", progname);
     // clang-format on
+    fprintf(f, "UPX comes with ABSOLUTELY NO WARRANTY; for details type '%s -L'.\n", progname);
 }
 
 /*************************************************************************
@@ -475,11 +523,16 @@ void show_sysinfo(const char *options_var) {
             con_fprintf(f, fmt, v);
             con_fprintf(f, "\n");
         };
+
         // language
         cf_print("__cplusplus", "%lld", __cplusplus + 0, 3);
 #if defined(_MSVC_LANG)
         cf_print("_MSVC_LANG", "%lld", _MSVC_LANG + 0, 3);
 #endif
+#if defined(upx_is_constant_evaluated)
+        cf_print("upx_is_constant_evaluated", "%lld", 1, 3);
+#endif
+
         // compiler
 #if defined(ACC_CC_CLANG)
         cf_print("ACC_CC_CLANG", "0x%06llx", ACC_CC_CLANG + 0, 3);
@@ -496,11 +549,20 @@ void show_sysinfo(const char *options_var) {
 #if defined(__clang_major__)
         cf_print("__clang_major__", "%lld", __clang_major__ + 0);
 #endif
+#if defined(__clang_minor__)
+        cf_print("__clang_minor__", "%lld", __clang_minor__ + 0, 3);
+#endif
+#if defined(__clang_patchlevel__)
+        cf_print("__clang_patchlevel__", "%lld", __clang_patchlevel__ + 0, 3);
+#endif
 #if defined(__GNUC__)
         cf_print("__GNUC__", "%lld", __GNUC__ + 0);
 #endif
 #if defined(__GNUC_MINOR__)
-        cf_print("__GNUC_MINOR__", "%lld", __GNUC_MINOR__ + 0);
+        cf_print("__GNUC_MINOR__", "%lld", __GNUC_MINOR__ + 0, 3);
+#endif
+#if defined(__GNUC_PATCHLEVEL__)
+        cf_print("__GNUC_PATCHLEVEL__", "%lld", __GNUC_PATCHLEVEL__ + 0, 3);
 #endif
 #if defined(_MSC_VER)
         cf_print("_MSC_VER", "%lld", _MSC_VER + 0);
@@ -508,12 +570,38 @@ void show_sysinfo(const char *options_var) {
 #if defined(_MSC_FULL_VER)
         cf_print("_MSC_FULL_VER", "%lld", _MSC_FULL_VER + 0);
 #endif
+
+        // architecture
+#if defined(__CHERI__)
+        cf_print("__CHERI__", "%lld", __CHERI__ + 0, 3);
+#endif
+#if defined(__CHERI_PURE_CAPABILITY__)
+        cf_print("__CHERI_PURE_CAPABILITY__", "%lld", __CHERI_PURE_CAPABILITY__ + 0, 3);
+#endif
+#if defined(__mips_hard_float)
+        cf_print("__mips_hard_float", "%lld", __mips_hard_float + 0);
+#endif
+#if defined(__mips_soft_float)
+        cf_print("__mips_soft_float", "%lld", __mips_soft_float + 0);
+#endif
+#if defined(__wasm__)
+        cf_print("__wasm__", "%lld", __wasm__ + 0);
+#endif
+#if defined(__wasm32__)
+        cf_print("__wasm32__", "%lld", __wasm32__ + 0);
+#endif
+#if defined(__wasm64__)
+        cf_print("__wasm64__", "%lld", __wasm64__ + 0);
+#endif
+
         // OS and libc
 #if defined(WINVER)
         cf_print("WINVER", "0x%04llx", WINVER + 0);
 #endif
 #if defined(_WIN32_WINNT)
         cf_print("_WIN32_WINNT", "0x%04llx", _WIN32_WINNT + 0);
+        if (initial_win32_winnt != 0 && initial_win32_winnt != _WIN32_WINNT + 0)
+            cf_print("INITIAL_WIN32_WINNT", "0x%04llx", initial_win32_winnt);
 #endif
 #if defined(__MSVCRT_VERSION__)
         cf_print("__MSVCRT_VERSION__", "0x%04llx", __MSVCRT_VERSION__ + 0);
@@ -524,13 +612,39 @@ void show_sysinfo(const char *options_var) {
 #if defined(__USE_MINGW_ANSI_STDIO)
         cf_print("__USE_MINGW_ANSI_STDIO", "%lld", __USE_MINGW_ANSI_STDIO + 0, 3);
 #endif
+#if defined(__ELF__)
+        cf_print("__ELF__", "%lld", __ELF__ + 0, 3);
+#endif
 #if defined(__GLIBC__)
         cf_print("__GLIBC__", "%lld", __GLIBC__ + 0);
 #endif
 #if defined(__GLIBC_MINOR__)
         cf_print("__GLIBC_MINOR__", "%lld", __GLIBC_MINOR__ + 0);
 #endif
+#if defined(__wasi__)
+        cf_print("__wasi__", "%lld", __wasi__ + 0);
+#endif
+
         // misc compilation options
+#if defined(__PIC__)
+        cf_print("__PIC__", "%lld", __PIC__ + 0, 3);
+#elif defined(__pic__)
+        cf_print("__pic__", "%lld", __pic__ + 0, 3);
+#endif
+#if defined(__PIE__)
+        cf_print("__PIE__", "%lld", __PIE__ + 0, 3);
+#elif defined(__pie__)
+        cf_print("__pie__", "%lld", __pie__ + 0, 3);
+#endif
+#if defined(__SIZEOF_INT128__)
+        cf_print("__SIZEOF_INT128__", "%lld", __SIZEOF_INT128__ + 0, 3);
+#endif
+#if defined(__SIZEOF_LONG_LONG__) && (__SIZEOF_LONG_LONG__ + 0 > 8)
+        cf_print("__SIZEOF_LONG_LONG__", "%lld", __SIZEOF_LONG_LONG__ + 0, 3);
+#endif
+#if defined(__SIZEOF_POINTER__) && (__SIZEOF_POINTER__ + 0 > 8)
+        cf_print("__SIZEOF_POINTER__", "%lld", __SIZEOF_POINTER__ + 0, 3);
+#endif
 #if defined(UPX_CONFIG_DISABLE_WSTRICT)
         cf_print("UPX_CONFIG_DISABLE_WSTRICT", "%lld", UPX_CONFIG_DISABLE_WSTRICT + 0, 3);
 #endif
@@ -540,11 +654,13 @@ void show_sysinfo(const char *options_var) {
 #if defined(WITH_THREADS)
         cf_print("WITH_THREADS", "%lld", WITH_THREADS + 0);
 #endif
+
         UNUSED(cf_count);
         UNUSED(cf_print);
+        UNUSED(initial_win32_winnt);
     }
 
-    // run-time
+    // run-time settings
 #if defined(HAVE_LOCALTIME) && defined(HAVE_GMTIME)
     {
         auto tm2str = [](char *s, size_t size, const struct tm *tmp) noexcept {
@@ -563,8 +679,9 @@ void show_sysinfo(const char *options_var) {
     }
 #endif
 
+    // environment
     if (options_var && options_var[0]) {
-        const char *e = getenv(options_var);
+        const char *e = upx_getenv(options_var);
         con_fprintf(f, "\n");
         if (e && e[0])
             con_fprintf(f, "Contents of environment variable %s: '%s'\n\n", options_var, e);

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -356,9 +356,24 @@ protected:
         RT_LAST
     };
 
-    class Interval final : private noncopyable {
-        unsigned capacity = 0;
-        void *base = nullptr;
+    enum {                            // 4-bit reloc_type in IMAGE_BASE_RELOCATION relocations
+        IMAGE_REL_BASED_ABSOLUTE = 0, // this relocation is ignored
+        IMAGE_REL_BASED_IGNORE = 0,   // (unofficial UPX name)
+        IMAGE_REL_BASED_HIGH = 1,
+        IMAGE_REL_BASED_LOW = 2,
+        IMAGE_REL_BASED_HIGHLOW = 3,
+        IMAGE_REL_BASED_HIGHADJ = 4,
+        IMAGE_REL_BASED_MIPS_JMPADDR = 5,
+        IMAGE_REL_BASED_ARM_MOV32 = 5,
+        IMAGE_REL_BASED_THUMB_MOV32 = 7,
+        IMAGE_REL_BASED_MIPS_JMPADDR16 = 9,
+        IMAGE_REL_BASED_IA64_IMM64 = 9,
+        IMAGE_REL_BASED_DIR64 = 10,
+    };
+
+    class Interval final : private upx::noncopyable {
+        SPAN_0(byte) base = nullptr;
+        unsigned ivcapacity = 0; // for ivarr
     public:
         struct interval {
             unsigned start, len;
@@ -366,13 +381,13 @@ protected:
         struct interval *ivarr = nullptr;
         unsigned ivnum = 0;
 
-        explicit Interval(void *b);
+        explicit Interval(SPAN_P(byte));
         ~Interval() noexcept;
 
-        void add(unsigned start, unsigned len);
-        void add(const void *start, unsigned len);
-        void add(const void *start, const void *end);
-        void add(const Interval *iv);
+        void add_interval(unsigned start, unsigned len);
+        void add_interval(const void *start, unsigned len);
+        void add_interval(const void *start, const void *end);
+        void add_interval(const Interval *other);
         void flatten();
 
         void clear();
@@ -382,8 +397,8 @@ protected:
         static int __acc_cdecl_qsort compare(const void *p1, const void *p2);
     };
 
-    class Reloc final : private noncopyable {
-        // these are set in constructor
+    class Reloc final : private upx::noncopyable {
+        // these are set in the constructor:
         byte *start = nullptr;
         unsigned start_size_in_bytes = 0;
         bool start_did_alloc = false;
@@ -392,7 +407,7 @@ protected:
         struct alignas(1) BaseReloc { // IMAGE_BASE_RELOCATION
             LE32 virtual_address;
             LE32 size_of_block;
-            // LE16 rel1[COUNT]; // COUNT == (size_of_block - 8) / 2
+            // LE16 rel1[COUNT]; // actual relocations; COUNT == (size_of_block - 8) / 2
         };
         struct RelocationBlock {
             SPAN_0(BaseReloc) rel = nullptr;
@@ -411,14 +426,14 @@ protected:
         explicit Reloc(unsigned relocnum);
         ~Reloc() noexcept;
         //
-        bool next(unsigned &result_pos, unsigned &result_type);
+        bool next(unsigned &result_pos, unsigned &result_reloc_type);
         const unsigned *getcounts() const { return counts; }
         //
-        void add(unsigned pos, unsigned type);
+        void add_reloc(unsigned pos, unsigned reloc_type);
         void finish(byte *(&result_ptr), unsigned &result_size); // => transfer ownership
     };
 
-    class Resource final : private noncopyable {
+    class Resource final : private upx::noncopyable {
         struct res_dir_entry;
         struct res_dir;
         struct res_data;
@@ -474,7 +489,7 @@ protected:
          */
     };
 
-    class Export final : private noncopyable {
+    class Export final : private upx::noncopyable {
         struct alignas(1) export_dir_t {
             byte _[12]; // flags, timedate, version
             LE32 name;
@@ -564,7 +579,7 @@ protected:
         ddirs_t ddirs[16];
     };
 
-    pe_header_t ih, oh;
+    pe_header_t ih = {}, oh = {};
 };
 
 class PeFile64 : public PeFile {
@@ -625,7 +640,7 @@ protected:
         ddirs_t ddirs[16];
     };
 
-    pe_header_t ih, oh;
+    pe_header_t ih = {}, oh = {};
 };
 
 /* vim:set ts=4 sw=4 et: */

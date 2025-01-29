@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -33,10 +33,8 @@
 // compression method util
 **************************************************************************/
 
-/*static*/ bool Packer::isValidCompressionMethod(int method) {
-    if (M_IS_LZMA(method))
-        return true;
-    return method >= M_NRV2B_LE32 && method <= M_LZMA;
+/*static*/ bool Packer::isValidCompressionMethod(int m) {
+    return M_IS_LZMA(m) || M_IS_NRV2B(m) || M_IS_NRV2D(m) || M_IS_NRV2E(m);
 }
 
 const int *Packer::getDefaultCompressionMethods_8(int method, int level, int small) const {
@@ -219,7 +217,7 @@ const char *Packer::getDecompressorSections() const {
         "LZMA_ELF00,LZMA_DEC20,LZMA_DEC30";
     // clang-format on
 
-    unsigned const method = ph_forced_method(ph.method);
+    const unsigned method = ph_forced_method(ph.method);
     if (method == M_NRV2B_LE32)
         return opt->small ? nrv2b_le32_small : nrv2b_le32_fast;
     if (method == M_NRV2D_LE32)
@@ -264,8 +262,12 @@ void Packer::defineDecompressorSymbols() {
 
         linker->defineSymbol("lzma_properties", properties);
         // len - 2 because of properties
-        linker->defineSymbol("lzma_c_len", ph.c_len - 2);
-        linker->defineSymbol("lzma_u_len", ph.u_len);
+        if (linker->findSymbol("lzma_c_len", false)) {
+            linker->defineSymbol("lzma_c_len", ph.c_len - 2);
+        }
+        if (linker->findSymbol("lzma_u_len", false)) {
+            linker->defineSymbol("lzma_u_len", ph.u_len);
+        }
         unsigned stack = getDecompressorWrkmemSize();
         linker->defineSymbol("lzma_stack_adjust", 0u - stack);
 

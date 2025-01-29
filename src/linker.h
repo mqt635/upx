@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -31,7 +31,7 @@
 // ElfLinker
 **************************************************************************/
 
-class ElfLinker : private noncopyable {
+class ElfLinker /*not_final*/ : private upx::noncopyable {
     friend class Packer;
 
 public:
@@ -68,7 +68,6 @@ protected:
     void preprocessSymbols(char *start, char const *end);
     void preprocessRelocations(char *start, char const *end);
     Section *findSection(const char *name, bool fatal = true) const;
-    Symbol *findSymbol(const char *name, bool fatal = true) const;
 
     Symbol *addSymbol(const char *name, const char *section, upx_uint64_t offset);
     Relocation *addRelocation(const char *section, unsigned off, const char *type,
@@ -92,6 +91,7 @@ public:
     int getSectionSize(const char *sname) const;
     byte *getLoader(int *llen = nullptr) const;
     void defineSymbol(const char *name, upx_uint64_t value);
+    Symbol *findSymbol(const char *name, bool fatal = true) const;
     upx_uint64_t getSymbolOffset(const char *) const;
 
     void dumpSymbol(const Symbol *, unsigned flags, FILE *fp) const;
@@ -114,7 +114,7 @@ protected:
                            const char *type);
 };
 
-struct ElfLinker::Section : private noncopyable {
+struct ElfLinker::Section final : private upx::noncopyable {
     char *name = nullptr;
     void *input = nullptr;
     byte *output = nullptr;
@@ -128,7 +128,7 @@ struct ElfLinker::Section : private noncopyable {
     ~Section() noexcept;
 };
 
-struct ElfLinker::Symbol : private noncopyable {
+struct ElfLinker::Symbol final : private upx::noncopyable {
     char *name = nullptr;
     Section *section = nullptr;
     upx_uint64_t offset = 0;
@@ -137,12 +137,12 @@ struct ElfLinker::Symbol : private noncopyable {
     ~Symbol() noexcept;
 };
 
-struct ElfLinker::Relocation : private noncopyable {
+struct ElfLinker::Relocation final : private upx::noncopyable {
     const Section *section = nullptr;
     unsigned offset = 0;
     const char *type = nullptr;
     const Symbol *value = nullptr;
-    upx_uint64_t add; // used in .rela relocations
+    upx_uint64_t add = 0; // used in .rela relocations
 
     explicit Relocation(const Section *s, unsigned o, const char *t, const Symbol *v,
                         upx_uint64_t a);

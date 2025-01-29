@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -87,6 +87,8 @@ public:
 
     virtual upx_off_t seek(upx_off_t off, int whence) override;
     upx_off_t st_size_orig() const;
+
+    noinline int dupFd() may_throw;
 
 protected:
     upx_off_t _length_orig = 0;

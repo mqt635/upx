@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -40,6 +40,7 @@
 #else
     UNUSED(name);
     UNUSED(mode);
+    // no error
 #endif
 }
 
@@ -88,7 +89,7 @@ bool FileBase::do_sopen() {
     else {
 #if (ACC_OS_DOS32) && defined(__DJGPP__)
         _fd = ::open(_name, _flags | _shflags, _mode);
-#elif defined(__MINT__)
+#elif (ACC_ARCH_M68K && ACC_OS_TOS && ACC_CC_GNUC) && defined(__MINT__)
         _fd = ::open(_name, _flags | (_shflags & O_SHMODE), _mode);
 #elif defined(SH_DENYRW)
         _fd = ::sopen(_name, _flags, _shflags, _mode);
@@ -98,6 +99,7 @@ bool FileBase::do_sopen() {
     }
     if (_fd < 0)
         return false;
+    st.st_size = 0;
     if (::fstat(_fd, &st) != 0)
         throwIOException(_name, errno);
     _length = st.st_size;
@@ -212,6 +214,20 @@ upx_off_t InputFile::seek(upx_off_t off, int whence) {
 
 upx_off_t InputFile::st_size_orig() const { return _length_orig; }
 
+int InputFile::dupFd() may_throw {
+    if (!isOpen())
+        throwIOException("bad dup");
+#if defined(HAVE_DUP) && (HAVE_DUP + 0 == 0)
+    errno = ENOSYS;
+    int r = -1;
+#else
+    int r = ::dup(getFd());
+#endif
+    if (r < 0)
+        throwIOException("dup", errno);
+    return r;
+}
+
 /*************************************************************************
 // OutputFile
 **************************************************************************/
@@ -305,23 +321,21 @@ upx_off_t OutputFile::seek(upx_off_t off, int whence) {
     mem_size_assert(1, off >= 0 ? off : -off); // sanity check
     assert(!opt->to_stdout);
     switch (whence) {
-    case SEEK_SET: {
-        if (bytes_written < off) {
+    case SEEK_SET:
+        if (bytes_written < off)
             bytes_written = off;
-        }
         _length = bytes_written; // cheap, lazy update; needed?
-    } break;
-    case SEEK_END: {
+        break;
+    case SEEK_END:
         _length = bytes_written; // necessary
-    } break;
+        break;
     }
     return super::seek(off, whence);
 }
 
 // WARNING: fsync() does not exist in some Windows environments.
 // This trick works only on UNIX-like systems.
-// int OutputFile::read(void *buf, int len)
-//{
+// int OutputFile::read(void *buf, int len) {
 //    fsync(_fd);
 //    InputFile infile;
 //    infile.open(this->getName(), O_RDONLY | O_BINARY);
@@ -333,6 +347,7 @@ void OutputFile::set_extent(upx_off_t offset, upx_off_t length) {
     super::set_extent(offset, length);
     bytes_written = 0;
     if (0 == offset && 0xffffffffLL == length) { // TODO: check all callers of this method
+        st.st_size = 0;
         if (::fstat(_fd, &st) != 0)
             throwIOException(_name, errno);
         _length = st.st_size - offset;

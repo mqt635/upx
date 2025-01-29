@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2023 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2023 Laszlo Molnar
+   Copyright (C) 1996-2025 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2025 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -49,6 +49,8 @@ unsigned membuffer_get_size(MemBuffer &mb) noexcept { return mb.getSize(); }
 
 #if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_MEMORY__)
 static forceinline constexpr bool use_simple_mcheck() noexcept { return false; }
+#elif defined(__CHERI__) && defined(__CHERI_PURE_CAPABILITY__)
+static forceinline constexpr bool use_simple_mcheck() noexcept { return false; }
 #elif (WITH_VALGRIND) && defined(RUNNING_ON_VALGRIND)
 static bool use_simple_mcheck_flag;
 static noinline void init_use_simple_mcheck() noexcept {
@@ -73,7 +75,8 @@ static forceinline constexpr bool use_simple_mcheck() noexcept { return true; }
 //
 **************************************************************************/
 
-MemBuffer::MemBuffer(upx_uint64_t bytes) : MemBufferBase<byte>() {
+MemBuffer::MemBuffer(upx_uint64_t bytes) may_throw : MemBufferBase<byte>() {
+    static_assert(element_size == 1);
     alloc(bytes);
     debug_set(debug.last_return_address_alloc, upx_return_address());
 }
@@ -90,13 +93,11 @@ void *MemBuffer::subref_impl(const char *errfmt, size_t skip, size_t take) {
         // printf is using unsigned formatting
         if (!errfmt || !errfmt[0])
             errfmt = "bad subref %#x %#x";
-        snprintf(buf, sizeof(buf), errfmt, (unsigned) skip, (unsigned) take);
+        upx_safe_snprintf(buf, sizeof(buf), errfmt, (unsigned) skip, (unsigned) take);
         throwCantPack(buf);
     }
     return ptr + skip;
 }
-
-static forceinline constexpr size_t umax(size_t a, size_t b) { return (a >= b) ? a : b; }
 
 /*static*/
 unsigned MemBuffer::getSizeForCompression(unsigned uncompressed_size, unsigned extra) {
@@ -105,9 +106,9 @@ unsigned MemBuffer::getSizeForCompression(unsigned uncompressed_size, unsigned e
     const size_t z = uncompressed_size; // fewer keystrokes and display columns
     size_t bytes = mem_size(1, z);      // check size
     // All literal: 1 bit overhead per literal byte; from UCL documentation
-    bytes = umax(bytes, z + z / 8 + 256);
+    bytes = upx::umax(bytes, z + z / 8 + 256);
     // zstd: ZSTD_COMPRESSBOUND
-    bytes = umax(bytes, z + (z >> 8) + ((z < (128 << 10)) ? (((128 << 10) - z) >> 11) : 0));
+    bytes = upx::umax(bytes, z + (z >> 8) + ((z < (128 << 10)) ? (((128 << 10) - z) >> 11) : 0));
     // add extra and 256 safety for various rounding/alignments
     bytes = mem_size(1, bytes, extra, 256);
     return ACC_ICONV(unsigned, bytes);
@@ -147,11 +148,11 @@ void MemBuffer::fill(unsigned off, unsigned len, int value) {
 **************************************************************************/
 
 // for use_simple_mcheck()
-#define PTR_BITS32(p) ((unsigned) ((upx_uintptr_t) (p) &0xffffffff))
+#define PTR_BITS32(p) ((upx_uint32_t) (ptr_get_address(p) & 0xffffffff))
 #define MAGIC1(p)     ((PTR_BITS32(p) ^ 0xfefdbeeb) | 1)
 #define MAGIC2(p)     ((PTR_BITS32(p) ^ 0xfefdbeeb ^ 0x88224411) | 1)
 
-void MemBuffer::checkState() const {
+void MemBuffer::checkState() const may_throw {
     if (!ptr)
         throwInternalError("block not allocated");
     assert(size_in_bytes > 0);
@@ -166,7 +167,7 @@ void MemBuffer::checkState() const {
     }
 }
 
-void MemBuffer::alloc(upx_uint64_t bytes) {
+void MemBuffer::alloc(upx_uint64_t bytes) may_throw {
     // INFO: we don't automatically free a used buffer
     assert(ptr == nullptr);
     assert(size_in_bytes == 0);
@@ -176,6 +177,8 @@ void MemBuffer::alloc(upx_uint64_t bytes) {
     size_t malloc_bytes = mem_size(1, bytes); // check size
     if (use_simple_mcheck())
         malloc_bytes += 32;
+    else
+        malloc_bytes += 4;
     byte *p = (byte *) ::malloc(malloc_bytes);
     NO_printf("MemBuffer::alloc %llu: %p\n", bytes, p);
     if (!p)
@@ -189,7 +192,7 @@ void MemBuffer::alloc(upx_uint64_t bytes) {
         set_ne32(p + size_in_bytes + 0, MAGIC2(p));
         set_ne32(p + size_in_bytes + 4, stats.global_alloc_counter);
     }
-    ptr = (pointer) (void *) p;
+    ptr = upx::ptr_static_cast<pointer>(p);
 #if !defined(__SANITIZE_MEMORY__) && DEBUG
     memset(ptr, 0xfb, size_in_bytes);
     (void) VALGRIND_MAKE_MEM_UNDEFINED(ptr, size_in_bytes);
@@ -247,29 +250,40 @@ void MemBuffer::dealloc() noexcept {
 **************************************************************************/
 
 TEST_CASE("MemBuffer core") {
+    constexpr size_t N = 64;
     MemBuffer mb;
     CHECK_THROWS(mb.checkState());
     CHECK_THROWS(mb.alloc(0x30000000 + 1));
     CHECK(raw_bytes(mb, 0) == nullptr);
     CHECK_THROWS(raw_bytes(mb, 1));
-    mb.alloc(64);
+    CHECK_THROWS(mb.begin());
+    CHECK_THROWS(mb.end());
+    CHECK_THROWS(mb.cbegin());
+    CHECK_THROWS(mb.cend());
+    mb.alloc(N);
     mb.checkState();
-    CHECK(raw_bytes(mb, 64) != nullptr);
-    CHECK(raw_bytes(mb, 64) == mb.getVoidPtr());
-    CHECK_THROWS(raw_bytes(mb, 65));
-    CHECK_NOTHROW(mb + 64);
-    CHECK_THROWS(mb + 65);
+    CHECK(mb.begin() == mb.cbegin());
+    CHECK(mb.end() == mb.cend());
+    CHECK(mb.begin() == &mb[0]);
+    CHECK(mb.end() == &mb[0] + N);
+    CHECK(mb.cbegin() == &mb[0]);
+    CHECK(mb.cend() == &mb[0] + N);
+    CHECK(raw_bytes(mb, N) != nullptr);
+    CHECK(raw_bytes(mb, N) == mb.getVoidPtr());
+    CHECK_THROWS(raw_bytes(mb, N + 1));
+    CHECK_NOTHROW(mb + N);
+    CHECK_THROWS(mb + (N + 1));
 #if ALLOW_INT_PLUS_MEMBUFFER
-    CHECK_NOTHROW(64 + mb);
-    CHECK_THROWS(65 + mb);
+    CHECK_NOTHROW(N + mb);
+    CHECK_THROWS((N + 1) + mb);
 #endif
-    CHECK_NOTHROW(mb.subref("", 0, 64));
-    CHECK_NOTHROW(mb.subref("", 64, 0));
-    CHECK_THROWS(mb.subref("", 1, 64));
-    CHECK_THROWS(mb.subref("", 64, 1));
+    CHECK_NOTHROW(mb.subref("", 0, N));
+    CHECK_NOTHROW(mb.subref("", N, 0));
+    CHECK_THROWS(mb.subref("", 1, N));
+    CHECK_THROWS(mb.subref("", N, 1));
     if (use_simple_mcheck()) {
         byte *p = raw_bytes(mb, 0);
-        unsigned magic1 = get_ne32(p - 4);
+        upx_uint32_t magic1 = get_ne32(p - 4);
         set_ne32(p - 4, magic1 ^ 1);
         CHECK_THROWS(mb.checkState());
         set_ne32(p - 4, magic1);
@@ -308,10 +322,35 @@ TEST_CASE("MemBuffer global overloads") {
     CHECK_THROWS(set_le64(mb4, 0));
 }
 
-TEST_CASE("MemBuffer unused") {
+TEST_CASE("MemBuffer unused 1") {
     MemBuffer mb;
     CHECK(mb.raw_ptr() == nullptr);
     CHECK(mb.raw_size_in_bytes() == 0);
+}
+
+TEST_CASE("MemBuffer unused 2") {
+    MemBuffer mb;
+    (void) mb;
+}
+
+TEST_CASE("MemBuffer array access") {
+    constexpr size_t N = 16;
+    MemBuffer mb(N);
+    mb.clear();
+    for (size_t i = 0; i != N; ++i)
+        mb[i] += 1;
+    for (byte *ptr = mb; ptr != mb + N; ++ptr)
+        *ptr += 1;
+    for (byte *ptr = mb + 0; ptr < mb + N; ++ptr)
+        *ptr += 1;
+    for (byte *ptr = &mb[0]; ptr != mb.end(); ++ptr)
+        *ptr += 1;
+    for (byte *ptr = mb.begin(); ptr < mb.end(); ++ptr)
+        *ptr += 1;
+    for (size_t i = 0; i != N; ++i)
+        assert(mb[i] == 5);
+    CHECK_NOTHROW((void) &mb[N - 1]);
+    CHECK_THROWS((void) &mb[N]); // NOT legal for containers like std::vector or MemBuffer
 }
 
 TEST_CASE("MemBuffer::getSizeForCompression") {
